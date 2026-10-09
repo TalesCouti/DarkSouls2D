@@ -28,6 +28,7 @@ SOURCES = {
             "dodge",
             "block",
             "drink",
+            "death",
             "attack_a",
             "attack_b",
             "heavy_a",
@@ -108,7 +109,12 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     sheet = pygame.image.load(source_path).convert_alpha()
     frames, metadata = split_grid(sheet)
 
-    anchor_heights = [metadata[0][0].height, metadata[-1][0].height]
+    # Death ends in a deliberately short lying pose. Scale from the initial
+    # standing frame so the armor remains the same size as the other strips.
+    if prefix == "hero" and animation == "death":
+        anchor_heights = [metadata[0][0].height]
+    else:
+        anchor_heights = [metadata[0][0].height, metadata[-1][0].height]
     scale = target_neutral_height / median(anchor_heights)
 
     lifts = [0.0] * len(frames)

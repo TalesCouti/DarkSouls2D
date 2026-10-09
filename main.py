@@ -16,6 +16,7 @@ GROUND = 566
 LEFT_WALL, RIGHT_WALL = 72, WIDTH - 72
 HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
+DEATH_ANIMATION_DURATION = 1.15
 ROOT = Path(__file__).parent
 
 
@@ -56,7 +57,7 @@ class SpriteArt:
     def __init__(self):
         self.hero = self._strips(
             "hero",
-            ("idle", "walk", "dodge", "block", "drink", "attack_a", "attack_b", "heavy_a", "heavy_b"),
+            ("idle", "walk", "dodge", "block", "drink", "death", "attack_a", "attack_b", "heavy_a", "heavy_b"),
             1.10,
         )
         self.gundyr = self._strips(
@@ -300,6 +301,8 @@ class Hero:
         return None, 0
 
     def hurt_box(self):
+        if self.state == "dead":
+            return pygame.Rect(int(self.pos.x - 70), int(self.pos.y - 42), 140, 42)
         return pygame.Rect(int(self.pos.x - 24), int(self.pos.y - 116), 48, 116)
 
     def parry_active(self):
@@ -307,7 +310,7 @@ class Hero:
 
     def draw(self, surface, sprites, offset):
         if self.state == "dead":
-            name = "heavy_a"
+            name = "death"
         elif self.state in ("attack", "heavy"):
             name = self.attack_variant
         elif self.state == "dodge":
@@ -329,6 +332,11 @@ class Hero:
             frame_index = min(len(frames) - 1, int(self.timer / 1.0 * len(frames)))
         elif self.state == "heal":
             frame_index = min(len(frames) - 1, int(self.timer / HEAL_DURATION * len(frames)))
+        elif self.state == "dead":
+            frame_index = min(
+                len(frames) - 1,
+                int(self.timer / DEATH_ANIMATION_DURATION * len(frames)),
+            )
         elif self.state == "block":
             frame_index = min(int(self.timer * 12), 7)
         else:
@@ -341,15 +349,12 @@ class Hero:
             frame = frame.copy()
             frame.fill((90, 20, 20, 0), special_flags=pygame.BLEND_RGB_ADD)
         pos = self.pos + offset
-        shadow = pygame.Rect(0, 0, 62, 13)
+        shadow = pygame.Rect(0, 0, 116 if self.state == "dead" else 62, 13)
         shadow.center = pos.x, GROUND + 7 + offset.y
         pygame.draw.ellipse(surface, (5, 5, 7), shadow)
         # Every strip keeps two transparent pixels below its ground line.
         # Anchoring the cell at y + 2 places the visible feet exactly at y.
         rect = frame.get_rect(midbottom=(pos.x, pos.y + 2))
-        if self.state == "dead":
-            frame = pygame.transform.rotate(frame, 75)
-            rect = frame.get_rect(midbottom=(pos.x, pos.y + 2))
         surface.blit(frame, rect)
         if self.state == "parry":
             alpha = int(190 * max(0, 1 - self.timer / .48))
