@@ -606,8 +606,10 @@ class Game:
         self.font_small = pygame.font.SysFont("georgia", 17)
         self.font_ui = pygame.font.SysFont("georgia", 23)
         self.font_large = pygame.font.SysFont("georgia", 62)
+        self.font_death = pygame.font.SysFont("georgia", 82)
         self.art = SpriteArt()
         self.background = self.build_background()
+        self.death_vignette = self.build_death_vignette()
         self.capture = capture
         self.show_hitboxes = True
         self.restart()
@@ -619,6 +621,18 @@ class Game:
         self.help_time, self.paused = 8.0, False
 
     def build_background(self):
+        arena_path = ROOT / "assets" / "arena_gundyr_v1.png"
+        if arena_path.exists():
+            arena = pygame.image.load(arena_path).convert()
+            arena = pygame.transform.smoothscale(arena, (WIDTH, HEIGHT))
+            # Pull the detailed painting into the same restrained value range
+            # as the actors and UI while keeping the cold sky readable.
+            arena.fill((176, 181, 191), special_flags=pygame.BLEND_RGB_MULT)
+            cold_grade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            cold_grade.fill((15, 22, 31, 38))
+            arena.blit(cold_grade, (0, 0))
+            return arena
+
         surface = pygame.Surface((WIDTH, HEIGHT))
         surface.fill((12, 10, 14))
         pygame.draw.circle(surface, (107, 21, 28), (WIDTH // 2, 195), 128)
@@ -646,6 +660,21 @@ class Game:
             pygame.draw.ellipse(fog, (115, 106, 103, 9), (random.randint(-80, WIDTH), random.randint(0, 100), random.randint(130, 300), 45))
         surface.blit(fog, (0, GROUND - 85))
         return surface
+
+    @staticmethod
+    def build_death_vignette():
+        vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        for layer in range(14):
+            inset_x = layer * 18
+            inset_y = layer * 10
+            alpha = max(8, 54 - layer * 3)
+            pygame.draw.rect(
+                vignette,
+                (0, 0, 0, alpha),
+                (inset_x, inset_y, WIDTH - inset_x * 2, HEIGHT - inset_y * 2),
+                24,
+            )
+        return vignette
 
     @staticmethod
     def movement():
@@ -770,6 +799,44 @@ class Game:
         draw_text(self.screen, self.font_large, title, (WIDTH // 2, HEIGHT // 2 - 18), color, "center")
         draw_text(self.screen, self.font_ui, subtitle, (WIDTH // 2, HEIGHT // 2 + 51), (193, 181, 168), "center")
 
+    def draw_death_screen(self):
+        fade = clamp((self.end_timer - .12) / 1.35, 0, 1)
+        fade = fade * fade * (3 - 2 * fade)
+
+        veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        veil.fill((2, 2, 3, int(205 * fade)))
+        self.screen.blit(veil, (0, 0))
+
+        vignette = self.death_vignette.copy()
+        vignette.set_alpha(int(255 * fade))
+        self.screen.blit(vignette, (0, 0))
+
+        text_fade = clamp((self.end_timer - .52) / 1.05, 0, 1)
+        text_fade = text_fade * text_fade * (3 - 2 * text_fade)
+        text_alpha = int(235 * text_fade)
+        center_y = HEIGHT // 2 - 18
+
+        rule = pygame.Surface((700, 2), pygame.SRCALPHA)
+        pygame.draw.line(rule, (119, 34, 36, int(105 * text_fade)), (0, 1), (700, 1))
+        self.screen.blit(rule, (WIDTH // 2 - 350, center_y + 57))
+
+        shadow = self.font_death.render("VOCÊ MORREU", True, (5, 2, 3))
+        shadow.set_alpha(text_alpha)
+        self.screen.blit(shadow, shadow.get_rect(center=(WIDTH // 2 + 3, center_y + 4)))
+
+        title = self.font_death.render("VOCÊ MORREU", True, (137, 31, 34))
+        title.set_alpha(text_alpha)
+        self.screen.blit(title, title.get_rect(center=(WIDTH // 2, center_y)))
+
+        prompt_fade = clamp((self.end_timer - 1.75) / .7, 0, 1)
+        if prompt_fade:
+            prompt = self.font_small.render("R   RENASCER NA FOGUEIRA", True, (174, 166, 154))
+            prompt.set_alpha(int(210 * prompt_fade))
+            self.screen.blit(
+                prompt,
+                prompt.get_rect(center=(WIDTH // 2, center_y + 105)),
+            )
+
     def draw_debug_hitboxes(self, offset):
         if not self.show_hitboxes:
             return
@@ -828,8 +895,8 @@ class Game:
             draw_text(self.screen, self.font_small, "Costas ignoram o escudo  •  F3 hitboxes  •  H oculta ajuda", (WIDTH // 2, 127), (164, 154, 143), "midtop")
         if self.paused:
             self.overlay("PAUSADO", "ESC para continuar", (214, 203, 186))
-        elif not self.hero.hp and self.end_timer > .65:
-            self.overlay("PENITÊNCIA ENCERRADA", "R  tentar novamente", (158, 35, 39))
+        elif not self.hero.hp:
+            self.draw_death_screen()
         elif not self.boss.hp and self.end_timer > .8:
             self.overlay("CULPA PURIFICADA", "R  lutar novamente", (219, 176, 82))
         pygame.display.flip()

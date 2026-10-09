@@ -2,6 +2,8 @@
 
 Duelo 2D lateral em pixel art, com atmosfera gótica inspirada em *Blasphemous* e combate de chefe inspirado em *Dark Souls 3*. A luta é contra **Iudex Gundyr**, sem lock-on.
 
+A arena usa um pátio gótico em ruínas, com muralhas, túmulos, névoa e iluminação fria. Ao morrer, uma transição escura exibe “VOCÊ MORREU” antes da opção de renascer.
+
 ## Executar
 
 ```powershell
