@@ -22,13 +22,13 @@ py main.py
 | Esquivar | `Espaço / Shift` |
 | Defender na direção do escudo | Segurar `F` |
 | Aparar | `Q` |
-| Usar frasco de cura | `E` |
+| Beber Estus | `E` |
 | Mostrar ou ocultar ajuda | `H` |
 | Mostrar ou ocultar hitboxes | `F3` |
 | Pausar | `Esc` |
 | Reiniciar após o fim | `R` |
 
-O jogador tem vida, stamina, combo, ataque forte, cura, pulo, rolamento com invencibilidade, defesa direcional e aparo. Segurar `F` bloqueia golpes que chegam pela frente e consome stamina; ataques pelas costas ignoram o escudo. O chefe possui golpes com preparação e recuperação mais longas, recuos, investida, salto, combos, variações de tempo, golpes de área e uma segunda fase mais agressiva.
+O jogador tem vida, stamina, combo, ataque forte, cura, pulo, rolamento com invencibilidade, defesa direcional e aparo. Ao pressionar `E`, ele saca e bebe o Estus; comandos do jogador não cancelam a animação, mas um ataque inimigo pode interrompê-la. A cura só é aplicada no momento do gole. Segurar `F` bloqueia golpes que chegam pela frente e consome stamina; ataques pelas costas ignoram o escudo. O chefe possui golpes com preparação e recuperação mais longas, recuos, investida, salto, combos, variações de tempo, golpes de área e uma segunda fase mais agressiva.
 
 Durante o desenvolvimento, as hitboxes começam visíveis: azul para o jogador, laranja para o chefe, verde para ataques do jogador e vermelho para ataques do chefe.
 
@@ -36,7 +36,7 @@ Durante o desenvolvimento, as hitboxes começam visíveis: azul para o jogador, 
 
 Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte independente por movimento em `assets/source_v5/`, organizada em uma grade invisível 5×2. O exportador transforma cada fonte em uma tira de dez células isoladas em `assets/animations_v5/`, com margem de segurança, botas completas e linha de chão normalizada. Assim nenhuma espada, alabarda ou parte dos pés invade o quadro vizinho.
 
-- Cavaleiro: idle, corrida, rolamento, defesa, dois ataques leves e dois ataques fortes.
+- Cavaleiro: idle, corrida, rolamento, defesa, beber Estus, dois ataques leves e dois ataques fortes.
 - Iudex Gundyr: idle, caminhada, duas varreduras, duas estocadas, golpe vertical e movimentos especiais.
 
 Os atlases-fonte antigos ficam em `assets/hero_v3_atlas.png` e `assets/gundyr_v3_atlas.png`. Para reexportá-los, execute `py prepare_sprites.py`. Para reexportar as animações independentes corrigidas, execute `py prepare_independent_sprites.py`.

@@ -14,6 +14,8 @@ import pygame
 WIDTH, HEIGHT, FPS = 1280, 720, 60
 GROUND = 566
 LEFT_WALL, RIGHT_WALL = 72, WIDTH - 72
+HEAL_DURATION = 1.45
+HEAL_APPLY_TIME = .78
 ROOT = Path(__file__).parent
 
 
@@ -54,7 +56,7 @@ class SpriteArt:
     def __init__(self):
         self.hero = self._strips(
             "hero",
-            ("idle", "walk", "dodge", "block", "attack_a", "attack_b", "heavy_a", "heavy_b"),
+            ("idle", "walk", "dodge", "block", "drink", "attack_a", "attack_b", "heavy_a", "heavy_b"),
             1.10,
         )
         self.gundyr = self._strips(
@@ -62,6 +64,19 @@ class SpriteArt:
             ("idle", "walk", "sweep_a", "sweep_b", "thrust_a", "thrust_b", "slam", "special"),
             1.55,
         )
+        self.estus_icon = self._icon("estus_flask_v1.png", 42)
+
+    @staticmethod
+    def _icon(filename, max_size):
+        source = pygame.image.load(ROOT / "assets" / "ui" / filename).convert_alpha()
+        bounds = source.get_bounding_rect(min_alpha=24)
+        source = source.subsurface(bounds).copy()
+        scale = min(max_size / source.get_width(), max_size / source.get_height())
+        size = (
+            max(1, round(source.get_width() * scale)),
+            max(1, round(source.get_height() * scale)),
+        )
+        return pygame.transform.smoothscale(source, size)
 
     @staticmethod
     def _strips(prefix, animation_names, scale):
@@ -112,6 +127,7 @@ class Hero:
         self.grounded = True
         self.invulnerable = self.flash = 0.0
         self.hit_done = self.attack_queued = False
+        self.heal_applied = self.heal_effect = False
         self.combo, self.combo_window = 0, 0.0
         self.attack_variant = "attack_a"
 
@@ -154,6 +170,7 @@ class Hero:
         if self.free() and self.grounded and self.flasks and self.hp < self.max_hp:
             self.flasks -= 1
             self.state, self.timer = "heal", 0
+            self.heal_applied = False
             self.velocity.x = 0
             return True
         return False
@@ -178,6 +195,7 @@ class Hero:
         return "hit"
 
     def update(self, dt, move, jump_pressed, defending):
+        self.heal_effect = False
         self.timer += dt
         self.invulnerable = max(0, self.invulnerable - dt)
         self.flash = max(0, self.flash - dt)
@@ -209,8 +227,12 @@ class Hero:
             if not defending or not self.grounded or self.stamina <= 0:
                 self.state, self.timer = "idle", 0
         elif self.state == "heal":
-            if self.timer > .88:
+            self.velocity.x = 0
+            if not self.heal_applied and self.timer >= HEAL_APPLY_TIME:
                 self.hp = min(self.max_hp, self.hp + 52)
+                self.heal_applied = True
+                self.heal_effect = True
+            if self.timer >= HEAL_DURATION:
                 self.state, self.timer = "idle", 0
         elif self.state == "hurt":
             if self.timer > .48:
@@ -290,6 +312,8 @@ class Hero:
             name = self.attack_variant
         elif self.state == "dodge":
             name = "dodge"
+        elif self.state == "heal":
+            name = "drink"
         elif self.state in ("block", "parry"):
             name = "block"
         elif self.state == "walk":
@@ -303,6 +327,8 @@ class Hero:
             frame_index = min(len(frames) - 1, int(self.timer / .62 * len(frames)))
         elif self.state == "heavy":
             frame_index = min(len(frames) - 1, int(self.timer / 1.0 * len(frames)))
+        elif self.state == "heal":
+            frame_index = min(len(frames) - 1, int(self.timer / HEAL_DURATION * len(frames)))
         elif self.state == "block":
             frame_index = min(int(self.timer * 12), 7)
         else:
@@ -332,8 +358,6 @@ class Hero:
             if self.facing < 0:
                 layer = pygame.transform.flip(layer, True, False)
             surface.blit(layer, (pos.x - 55, pos.y - 119))
-        if self.state == "heal":
-            pygame.draw.circle(surface, (221, 128, 37), pos - pygame.Vector2(0, 43), 32 + int(math.sin(self.timer * 15) * 4), 3)
 
 
 class Gundyr:
@@ -707,8 +731,8 @@ class Game:
                         self.hero.dodge(self.movement())
                     elif event.key == pygame.K_q:
                         self.hero.parry()
-                    elif event.key == pygame.K_e and self.hero.heal():
-                        self.burst(self.hero.pos - pygame.Vector2(0, 45), (224, 128, 36), 15, 90)
+                    elif event.key == pygame.K_e:
+                        self.hero.heal()
             if event.type == pygame.MOUSEBUTTONDOWN and not self.paused and self.hero.hp and self.boss.hp:
                 if event.button == 1:
                     self.hero.attack()
@@ -725,6 +749,13 @@ class Game:
             return
         defending = pygame.key.get_pressed()[pygame.K_f]
         self.hero.update(dt, self.movement(), jump, defending)
+        if self.hero.heal_effect:
+            self.burst(
+                self.hero.pos - pygame.Vector2(0, 54),
+                (238, 147, 35),
+                24,
+                125,
+            )
         for kind, pos in self.boss.update(dt, self.hero):
             if kind == "hit":
                 self.shake, self.freeze = 12, .075
@@ -785,7 +816,15 @@ class Game:
         pygame.draw.polygon(self.screen, (178, 37, 39), [(65, 39), (76, 64), (65, 93), (54, 64)])
         self.draw_bar(pygame.Rect(116, 37, 270, 19), self.hero.hp / self.hero.max_hp, (150, 31, 39))
         self.draw_bar(pygame.Rect(116, 69, 238, 13), self.hero.stamina / self.hero.max_stamina, (46, 128, 68))
-        draw_text(self.screen, self.font_small, f"FRASCO BILIAR  {self.hero.flasks}", (117, 98), (222, 174, 80))
+        icon_rect = self.art.estus_icon.get_rect(midleft=(113, 111))
+        self.screen.blit(self.art.estus_icon, icon_rect)
+        draw_text(
+            self.screen,
+            self.font_small,
+            f"ESTUS   × {self.hero.flasks}",
+            (160, 99),
+            (222, 174, 80),
+        )
         if self.boss.state != "intro" or self.boss.timer > .45:
             rect = pygame.Rect(205, HEIGHT - 66, WIDTH - 410, 18)
             self.draw_bar(rect, self.boss.hp / self.boss.max_hp, (128, 25, 33))

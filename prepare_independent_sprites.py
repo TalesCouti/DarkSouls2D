@@ -27,6 +27,7 @@ SOURCES = {
             "walk",
             "dodge",
             "block",
+            "drink",
             "attack_a",
             "attack_b",
             "heavy_a",
