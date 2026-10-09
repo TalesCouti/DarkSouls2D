@@ -14,7 +14,10 @@ OUTPUT_DIR = ROOT / "assets" / "animations_v5"
 GRID_COLUMNS = 5
 GRID_ROWS = 2
 ALPHA_THRESHOLD = 24
-CELL_PADDING = 16
+HORIZONTAL_PADDING = 16
+TOP_PADDING = 16
+BOTTOM_PADDING = 2
+SAFETY_MARGIN = 8
 
 SOURCES = {
     "hero": (
@@ -120,10 +123,17 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             )
         )
 
-    cell_width = max(frame.get_width() for frame, _ in prepared) + CELL_PADDING * 2
-    cell_height = max(frame.get_height() + lift for frame, lift in prepared) + CELL_PADDING * 2
+    cell_width = (
+        max(frame.get_width() for frame, _ in prepared)
+        + HORIZONTAL_PADDING * 2
+    )
+    cell_height = (
+        max(frame.get_height() + lift for frame, lift in prepared)
+        + TOP_PADDING
+        + BOTTOM_PADDING
+    )
     strip = pygame.Surface((cell_width * len(prepared), cell_height), pygame.SRCALPHA)
-    baseline = cell_height - CELL_PADDING
+    baseline = cell_height - BOTTOM_PADDING
 
     for index, (frame, lift) in enumerate(prepared):
         isolated_cell = pygame.Surface((cell_width, cell_height), pygame.SRCALPHA)
@@ -133,19 +143,13 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
         )
         isolated_cell.blit(frame, destination)
 
-        mask = pygame.mask.from_surface(isolated_cell, ALPHA_THRESHOLD)
-        border = CELL_PADDING // 2
-        inner = pygame.Rect(
-            border,
-            border,
-            cell_width - border * 2,
-            cell_height - border * 2,
-        )
-        outside = mask.count() - mask.overlap_area(
-            pygame.mask.Mask(inner.size, fill=True),
-            inner.topleft,
-        )
-        if outside:
+        content = opaque_bbox(isolated_cell)
+        if (
+            content.left < SAFETY_MARGIN
+            or content.right > cell_width - SAFETY_MARGIN
+            or content.top < SAFETY_MARGIN
+            or content.bottom > cell_height - 1
+        ):
             raise RuntimeError(
                 f"{source_path.name} frame {index + 1} entered its safety border"
             )

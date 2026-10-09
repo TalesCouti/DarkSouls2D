@@ -318,10 +318,12 @@ class Hero:
         shadow = pygame.Rect(0, 0, 62, 13)
         shadow.center = pos.x, GROUND + 3 + offset.y
         pygame.draw.ellipse(surface, (5, 5, 7), shadow)
-        rect = frame.get_rect(midbottom=(pos.x, pos.y + 5))
+        # Every strip keeps two transparent pixels below its ground line.
+        # Anchoring the cell at y + 2 places the visible feet exactly at y.
+        rect = frame.get_rect(midbottom=(pos.x, pos.y + 2))
         if self.state == "dead":
             frame = pygame.transform.rotate(frame, 75)
-            rect = frame.get_rect(midbottom=(pos.x, pos.y + 8))
+            rect = frame.get_rect(midbottom=(pos.x, pos.y + 2))
         surface.blit(frame, rect)
         if self.state == "parry":
             alpha = int(190 * max(0, 1 - self.timer / .48))
@@ -589,7 +591,7 @@ class Gundyr:
             frame.fill((90, 30, 24, 0), special_flags=pygame.BLEND_RGB_ADD)
         if self.state == "dead":
             frame = pygame.transform.rotate(frame, -70 * self.facing)
-        rect = frame.get_rect(midbottom=(pos.x, pos.y + 7))
+        rect = frame.get_rect(midbottom=(pos.x, pos.y + 2))
         surface.blit(frame, rect)
         if self.state == "stagger":
             draw_text(surface, pygame.font.SysFont("georgia", 18), "VULNERÁVEL", (pos.x, pos.y - 175), (226, 182, 87), "center")
