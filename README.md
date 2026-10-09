@@ -32,7 +32,7 @@ Durante o desenvolvimento, as hitboxes começam visíveis: azul para o jogador, 
 
 ## Animações
 
-Idle, caminhada e defesa continuam vindo dos atlases 10×8 em `assets/animations_v3/`. As animações largas usam uma fonte independente por movimento em `assets/source_v5/`, organizada em uma grade invisível 5×2. O exportador transforma cada fonte em uma tira de dez células isoladas em `assets/animations_v5/`, com margem de segurança e linha de chão normalizada. Assim nenhuma espada ou alabarda invade o quadro vizinho.
+Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte independente por movimento em `assets/source_v5/`, organizada em uma grade invisível 5×2. O exportador transforma cada fonte em uma tira de dez células isoladas em `assets/animations_v5/`, com margem de segurança, botas completas e linha de chão normalizada. Assim nenhuma espada, alabarda ou parte dos pés invade o quadro vizinho.
 
 - Cavaleiro: idle, corrida, rolamento, defesa, dois ataques leves e dois ataques fortes.
 - Iudex Gundyr: idle, caminhada, duas varreduras, duas estocadas, golpe vertical e movimentos especiais.

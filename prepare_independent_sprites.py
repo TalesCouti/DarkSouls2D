@@ -22,7 +22,16 @@ SAFETY_MARGIN = 8
 SOURCES = {
     "hero": (
         98,
-        ("dodge", "attack_a", "attack_b", "heavy_a", "heavy_b"),
+        (
+            "idle",
+            "walk",
+            "dodge",
+            "block",
+            "attack_a",
+            "attack_b",
+            "heavy_a",
+            "heavy_b",
+        ),
     ),
     "gundyr": (
         104,

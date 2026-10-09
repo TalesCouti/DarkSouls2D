@@ -316,7 +316,7 @@ class Hero:
             frame.fill((90, 20, 20, 0), special_flags=pygame.BLEND_RGB_ADD)
         pos = self.pos + offset
         shadow = pygame.Rect(0, 0, 62, 13)
-        shadow.center = pos.x, GROUND + 3 + offset.y
+        shadow.center = pos.x, GROUND + 7 + offset.y
         pygame.draw.ellipse(surface, (5, 5, 7), shadow)
         # Every strip keeps two transparent pixels below its ground line.
         # Anchoring the cell at y + 2 places the visible feet exactly at y.
@@ -557,7 +557,7 @@ class Gundyr:
             pygame.draw.ellipse(aura, (121, 14, 28, 25), (10, 5, 240, 220))
             surface.blit(aura, (pos.x - 130, pos.y - 202))
         shadow = pygame.Rect(0, 0, 124, 16)
-        shadow.center = pos.x, GROUND + 4 + offset.y
+        shadow.center = pos.x, GROUND + 9 + offset.y
         pygame.draw.ellipse(surface, (4, 4, 5), shadow)
         if self.state == "sweep":
             name, duration = "sweep_a", 1.38
