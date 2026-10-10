@@ -18,8 +18,9 @@ HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
 ROOT = Path(__file__).parent
-ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 20}
-GUNDYR_WALK_FPS = 12.0
+ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 60}
+# Adding inbetweens must not speed up the complete pair of footsteps.
+GUNDYR_WALK_CYCLE_DURATION = 20 / 12
 
 
 def clamp(value, low, high):
@@ -89,7 +90,12 @@ class SpriteArt:
             legacy = ROOT / "assets" / "animations_v3" / f"{prefix}_{name}.png"
             path = independent if independent.exists() else legacy
             strip = pygame.image.load(path).convert_alpha()
-            frame_count = ANIMATION_FRAME_COUNTS.get((prefix, name), 10)
+            frame_count = (
+                ANIMATION_FRAME_COUNTS.get((prefix, name), 10)
+                if path == independent else 10
+            )
+            if strip.get_width() % frame_count:
+                raise pygame.error(f"Invalid animation cell count: {path.name}")
             cell_w, cell_h = strip.get_width() // frame_count, strip.get_height()
             frames = []
             for column in range(frame_count):
@@ -619,7 +625,9 @@ class Gundyr:
             name, duration = "idle", 1.0
         frames = sprites[name]
         if name == "walk":
-            frame_index = int(self.walk_timer * GUNDYR_WALK_FPS) % len(frames)
+            frame_index = int(
+                self.walk_timer / GUNDYR_WALK_CYCLE_DURATION * len(frames)
+            ) % len(frames)
         elif name == "idle":
             frame_index = int(self.timer * 4) % len(frames)
         else:

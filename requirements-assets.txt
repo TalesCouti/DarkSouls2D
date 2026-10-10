@@ -1,0 +1,4 @@
+# Optional offline sprite-export tools. Not needed to run the game.
+-r requirements.txt
+numpy>=2,<3
+opencv-python-headless>=4.10,<6

@@ -233,8 +233,8 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
         + TOP_PADDING
         + BOTTOM_PADDING
     )
-    strip = pygame.Surface((cell_width * len(prepared), cell_height), pygame.SRCALPHA)
     baseline = cell_height - BOTTOM_PADDING
+    cells = []
 
     for index, (frame, lift, anchor) in enumerate(prepared):
         isolated_cell = pygame.Surface((cell_width, cell_height), pygame.SRCALPHA)
@@ -256,12 +256,29 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             raise RuntimeError(
                 f"{source_path.name} frame {index + 1} entered its safety border"
             )
-        strip.blit(isolated_cell, (index * cell_width, 0))
+        cells.append(isolated_cell)
+
+    if stable_body_anchor:
+        from interpolate_walk import interpolate_walk_cells
+
+        cells = interpolate_walk_cells(cells)
+
+    strip = pygame.Surface((cell_width * len(cells), cell_height), pygame.SRCALPHA)
+    for index, cell in enumerate(cells):
+        content = opaque_bbox(cell)
+        if (
+            content.left < SAFETY_MARGIN
+            or content.right > cell_width - SAFETY_MARGIN
+            or content.top < SAFETY_MARGIN
+            or content.bottom > cell_height - 1
+        ):
+            raise RuntimeError(f"{source_path.name} frame {index + 1} entered its safety border")
+        strip.blit(cell, (index * cell_width, 0))
 
     output_path = OUTPUT_DIR / f"{prefix}_{animation}.png"
     pygame.image.save(strip, output_path)
     print(
-        f"{output_path.name}: {len(prepared)} frames, cell={cell_width}x{cell_height}, "
+        f"{output_path.name}: {len(cells)} frames, cell={cell_width}x{cell_height}, "
         f"source scale={scale:.3f}"
     )
 
