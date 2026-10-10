@@ -19,6 +19,7 @@ HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
 ROOT = Path(__file__).parent
 ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 20}
+GUNDYR_WALK_FPS = 12.0
 
 
 def clamp(value, low, high):
@@ -379,6 +380,7 @@ class Gundyr:
         self.last_attack = ""
         self.flash = self.stagger = self.dead_time = 0.0
         self.moving = False
+        self.walk_timer = 0.0
 
     def receive(self, damage):
         if self.state in ("intro", "dead"):
@@ -571,6 +573,10 @@ class Gundyr:
                 elif self.state != "stagger":
                     self.finish(1.15)
         self.pos.x = clamp(self.pos.x, LEFT_WALL + 65, RIGHT_WALL - 65)
+        # Keep the walking phase independent of attack/idle state timers.
+        # Pausing and resuming movement continues from the same foot pose.
+        if self.state == "idle" and self.moving:
+            self.walk_timer += dt
         return events
 
     def draw(self, surface, sprites, offset):
@@ -612,11 +618,10 @@ class Gundyr:
         else:
             name, duration = "idle", 1.0
         frames = sprites[name]
-        if name in ("idle", "walk"):
-            # The 20-frame walk runs at double the old sampling rate, keeping
-            # the same cycle duration while showing the new transition poses.
-            speed = 18 if name == "walk" else 4
-            frame_index = int(self.timer * speed) % len(frames)
+        if name == "walk":
+            frame_index = int(self.walk_timer * GUNDYR_WALK_FPS) % len(frames)
+        elif name == "idle":
+            frame_index = int(self.timer * 4) % len(frames)
         else:
             frame_index = min(len(frames) - 1, int(self.timer / duration * len(frames)))
         frame = frames[frame_index]

@@ -37,6 +37,6 @@ Durante o desenvolvimento, as hitboxes começam visíveis: azul para o jogador, 
 Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte independente por movimento em `assets/source_v5/`, organizada em uma grade invisível 5×2. O exportador transforma cada fonte em células isoladas em `assets/animations_v5/`, com margem de segurança, botas completas e linha de chão normalizada. Assim nenhuma espada, alabarda ou parte dos pés invade o quadro vizinho.
 
 - Cavaleiro: idle, corrida, rolamento, defesa, beber Estus, morte com pose final deitada, dois ataques leves e dois ataques fortes.
-- Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada fluida com 20 quadros intercalados, duas varreduras, duas estocadas, golpe vertical e movimentos especiais.
+- Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada com 20 quadros a 12 quadros por segundo (ciclo de 1,67 s), duas varreduras, duas estocadas, golpe vertical e movimentos especiais. A caminhada preserva a sequência das passadas ao parar e retomar o movimento.
 
 Os atlases-fonte antigos ficam em `assets/hero_v3_atlas.png` e `assets/gundyr_v3_atlas.png`. Para reexportá-los, execute `py prepare_sprites.py`. Para reexportar as animações independentes corrigidas, execute `py prepare_independent_sprites.py`.
