@@ -17,7 +17,7 @@ import pygame
 
 
 ROOT = Path(__file__).parent
-SOURCE = ROOT / "assets" / "source_v6" / "gundyr_walk_consistent.png"
+SOURCE = ROOT / "assets" / "source_v6" / "gundyr_walk_painted.png"
 OUTPUT = ROOT / "assets" / "animations_v6" / "gundyr_walk"
 FRAME_COUNT = 16
 CELL_SIZE = (256, 124)
@@ -28,12 +28,12 @@ MIN_SPRITE_PIXELS = 500
 # Artist registration points, in the corrected source's coordinates.
 # These identify the pelvis, not the changing blade extent or head tilt.
 PELVIS_X = (
-    212, 629, 1044, 1458,
-    214, 625, 1056, 1463,
-    218, 627, 1046, 1463,
-    218, 637, 1053, 1471,
+    213, 628, 1047, 1463,
+    214, 622, 1056, 1467,
+    216, 627, 1048, 1469,
+    218, 635, 1055, 1474,
 )
-SOURCE_SIZE = (1671, 941)
+SOURCE_SIZE = (1670, 942)
 # AI sheets can draw later rows at a smaller pixel scale. Correct each row as
 # a WHOLE, identically on both axes and on all four poses in it; do not stretch
 # a limb or scale individual poses to equal heights. Their drawn bob remains.
@@ -42,7 +42,7 @@ SOURCE_SIZE = (1671, 941)
 # the idle while the inclined torso and flexed knees keep their shorter pose.
 # This remains a single scale per ROW, not a per-frame height equalizer.
 WALK_POSE_HEIGHT = 86
-ROW_SCALES = tuple(WALK_POSE_HEIGHT / height for height in (172.5, 175, 176, 168.5))
+ROW_SCALES = tuple(WALK_POSE_HEIGHT / height for height in (179, 180, 180, 173))
 
 
 def source_drawings(sheet: pygame.Surface):

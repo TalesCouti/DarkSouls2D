@@ -103,7 +103,7 @@ class DrawnWalkTests(unittest.TestCase):
             self.assertGreater(height, idle_height * 0.75)
             self.assertLess(height, idle_height * 0.90)
 
-    def test_generated_metal_palette_matches_idle_without_bright_silver_pop(self):
+    def test_generated_metal_palette_matches_idle_and_attacks_without_bright_silver_pop(self):
         def palette(frames):
             colors = [frame.get_at((x, y)) for frame in frames
                       for y in range(frame.get_height()) for x in range(frame.get_width())
@@ -115,16 +115,47 @@ class DrawnWalkTests(unittest.TestCase):
             warmth = median(color.r - color.b for color in colors)
             return levels, warmth
 
-        idle = main.SpriteArt._strips("gundyr", ("idle",), 1.0)["idle"]
-        reference, reference_warmth = palette(idle)
+        existing = main.SpriteArt._strips("gundyr", ("idle", "sweep_a", "sweep_b"), 1.0)
+        references = [palette(frames) for frames in existing.values()]
         walk, walk_warmth = palette(self.frames)
-        # Allow different visible cloth/metal coverage and painted texture,
-        # but reject the bright cream/silver highlights of the old walk sheet.
-        for actual, expected, tolerance in zip(walk, reference, (12, 12, 25)):
-            self.assertLessEqual(abs(actual - expected), tolerance)
+        # Different existing poses expose different areas of metal and cloth.
+        # Match their observed value range, not just a single standing pose,
+        # without allowing the previous pale cream/silver metal to return.
+        for index, (actual, tolerance) in enumerate(zip(walk, (12, 12, 25))):
+            values = [levels[index] for levels, _ in references]
+            self.assertGreaterEqual(actual, min(values) - tolerance)
+            self.assertLessEqual(actual, max(values) + tolerance)
         # A few RGB levels allow natural painted reflections/cloth coverage,
         # but not the noticeably warm bronze tint of the previous drawings.
-        self.assertLessEqual(walk_warmth, reference_warmth + 5)
+        self.assertLessEqual(walk_warmth, max(warmth for _, warmth in references) + 5)
+
+    def test_walk_has_no_heavy_black_ring_around_lit_material(self):
+        def luminance(color):
+            return .2126 * color.r + .7152 * color.g + .0722 * color.b
+
+        lit_edges = ink_edges = 0
+        for frame in self.frames:
+            for y in range(3, frame.get_height() - 3):
+                for x in range(3, frame.get_width() - 3):
+                    color = frame.get_at((x, y))
+                    if color.a < 128:
+                        continue
+                    if all(frame.get_at((x + dx, y + dy)).a >= 128
+                           for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1))):
+                        continue
+                    inside = [frame.get_at((x + dx, y + dy))
+                              for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2))]
+                    brightest = max((luminance(pixel) for pixel in inside if pixel.a > 200),
+                                    default=0)
+                    if brightest < 70:
+                        continue  # Dark cloth/shadow is not an unwanted ink stroke.
+                    lit_edges += 1
+                    value = luminance(color)
+                    ink_edges += value < 36 and value < brightest * .5
+        # The outlined source had ~19% dark rings beside lit material; the
+        # repainted source has <1%. Leave room for small natural contact shadows.
+        self.assertGreater(lit_edges, 500)
+        self.assertLess(ink_edges / lit_edges, .06)
 
     def test_corrected_source_has_wide_vertical_gutters_between_rows(self):
         bounds = exporter.source_rects(self.source)
