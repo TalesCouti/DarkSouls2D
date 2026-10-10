@@ -186,7 +186,7 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
         )
 
     if stable_body_anchor:
-        from rig_gundyr_walk import BODY_AXIS, SOURCE_SIZE, build_walk_keyframes
+        from rig_gundyr_walk import BODY_AXIS, SOURCE_SIZE, build_walk_frames
 
         cell_width, cell_height = SOURCE_SIZE
         body_axis = BODY_AXIS
@@ -226,9 +226,9 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
         cells.append(isolated_cell)
 
     if stable_body_anchor:
-        from interpolate_walk import interpolate_walk_cells
-
-        cells = interpolate_walk_cells(build_walk_keyframes(cells[0]))
+        # Sample the entire articulated pose at every frame. Cross-fading or
+        # optical-flowing already bent limbs can smear knee/ankle armor.
+        cells = build_walk_frames(cells[0])
 
     strip = pygame.Surface((cell_width * len(cells), cell_height), pygame.SRCALPHA)
     for index, cell in enumerate(cells):

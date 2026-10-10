@@ -21,6 +21,7 @@ ROOT = Path(__file__).parent
 ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 60}
 # Adding inbetweens must not speed up the complete pair of footsteps.
 GUNDYR_WALK_CYCLE_DURATION = 20 / 12
+GUNDYR_WALK_REFERENCE_SPEED = 90.0
 
 
 def clamp(value, low, high):
@@ -470,6 +471,7 @@ class Gundyr:
     def update(self, dt, hero):
         events = []
         self.moving = False
+        movement_start_x = self.pos.x
         self.timer += dt
         self.flash = max(0, self.flash - dt)
         distance = abs(hero.pos.x - self.pos.x)
@@ -579,10 +581,12 @@ class Gundyr:
                 elif self.state != "stagger":
                     self.finish(1.15)
         self.pos.x = clamp(self.pos.x, LEFT_WALL + 65, RIGHT_WALL - 65)
-        # Keep the walking phase independent of attack/idle state timers.
-        # Pausing and resuming movement continues from the same foot pose.
+        # Advance by actual travel, not just elapsed time. Faster pursuit and
+        # slower retreat keep planted feet stable; retreat plays the gait back.
         if self.state == "idle" and self.moving:
-            self.walk_timer += dt
+            stride_distance = (self.pos.x - movement_start_x) * self.facing
+            self.moving = abs(stride_distance) > 1e-6
+            self.walk_timer += stride_distance / GUNDYR_WALK_REFERENCE_SPEED
         return events
 
     def draw(self, surface, sprites, offset):
@@ -625,7 +629,7 @@ class Gundyr:
             name, duration = "idle", 1.0
         frames = sprites[name]
         if name == "walk":
-            frame_index = int(
+            frame_index = math.floor(
                 self.walk_timer / GUNDYR_WALK_CYCLE_DURATION * len(frames)
             ) % len(frames)
         elif name == "idle":

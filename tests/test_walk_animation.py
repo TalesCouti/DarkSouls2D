@@ -18,8 +18,9 @@ import pygame
 import main
 from interpolate_walk import WALK_INBETWEENS, interpolate_walk_cells
 from rig_gundyr_walk import (
-    FOOT_CLEARANCE, LEG_RIGS, SHIN_LENGTH, THIGH_LENGTH,
-    foot_pose, knee_joint,
+    FOOT_CLEARANCE, FRAME_COUNT, KEYFRAME_COUNT, LEG_RIGS, SHIN_LENGTH, THIGH_LENGTH,
+    body_bob, body_landmark, build_walk_frames, build_walk_keyframes,
+    foot_pose, knee_joint, weapon_pose,
 )
 
 
@@ -48,7 +49,7 @@ class WalkGaitTests(unittest.TestCase):
             phase = index / 1000
             for rig in LEG_RIGS:
                 ankle, _, _ = foot_pose(phase + rig["phase_offset"], rig["front_x"], 111)
-                hip = (rig["target_hip"][0], rig["target_hip"][1] + 1.5 * math.sin(4 * math.pi * phase))
+                hip = body_landmark(rig["target_hip"], phase)
                 knee = knee_joint(hip, ankle)
                 self.assertAlmostEqual(math.dist(hip, knee), THIGH_LENGTH)
                 self.assertAlmostEqual(math.dist(knee, ankle), SHIN_LENGTH)
@@ -60,6 +61,24 @@ class WalkGaitTests(unittest.TestCase):
             end, angle, _ = foot_pose(1 - 1e-8, rig["front_x"], 111)
             self.assertLess(math.dist(start, end), 1e-5)
             self.assertLess(abs(angle), 1e-5)
+
+    def test_spine_counterbalances_pelvis_instead_of_only_bobbing(self):
+        hip_left = body_landmark((60, 70), 0.25)
+        hip_right = body_landmark((60, 70), 0.75)
+        chest_left = body_landmark((60, 40), 0.25)
+        chest_right = body_landmark((60, 40), 0.75)
+        self.assertGreater(hip_left[0], hip_right[0])
+        self.assertLess(chest_left[0], chest_right[0])
+        self.assertGreater(abs(chest_left[0] - hip_left[0]), 2)
+        self.assertGreater(body_bob(0.125), body_bob(0.375))
+
+    def test_body_and_weapon_profiles_loop_without_a_jump(self):
+        for point in ((60, 70), (45, 38), (73, 42), (65, 20)):
+            self.assertLess(math.dist(body_landmark(point, 0), body_landmark(point, 1 - 1e-8)), 1e-5)
+        first, angle_first = weapon_pose(0)
+        last, angle_last = weapon_pose(1 - 1e-8)
+        self.assertLess(math.dist(first, last), 1e-5)
+        self.assertLess(abs(angle_first - angle_last), 1e-5)
 
 
 class WalkPlaybackTests(unittest.TestCase):
@@ -127,14 +146,13 @@ class WalkPlaybackTests(unittest.TestCase):
         self.assertEqual(floor_contacts(self.frames[15]), 1)
         self.assertEqual(floor_contacts(self.frames[45]), 1)
 
-    def test_halberd_blade_stays_identical_at_matching_body_heights(self):
-        blade = pygame.Rect(110, 83, 40, 30)
-        reference = pygame.image.tobytes(self.frames[0].subsurface(blade), "RGBA")
-        for index in (15, 30, 45):
-            self.assertEqual(
-                pygame.image.tobytes(self.frames[index].subsurface(blade), "RGBA"),
-                reference,
-            )
+    def test_torso_and_halberd_visibly_follow_the_steps(self):
+        for region in (pygame.Rect(35, 30, 52, 37), pygame.Rect(100, 83, 48, 32)):
+            poses = {
+                pygame.image.tobytes(self.frames[index].subsurface(region), "RGBA")
+                for index in (0, 15, 30, 45)
+            }
+            self.assertEqual(len(poses), 4)
 
     def test_scaled_boots_share_the_same_floor_in_both_directions(self):
         frames = main.SpriteArt._strips("gundyr", ("walk",), 1.55)["walk"]
@@ -160,6 +178,30 @@ class WalkPlaybackTests(unittest.TestCase):
         boss.state, boss.timer = "sweep", 0
         boss.update(0.02, hero)
         self.assertAlmostEqual(boss.walk_timer, 0.44)
+
+    def test_walk_clock_follows_travel_and_reverses_during_retreat(self):
+        boss, hero = main.Gundyr(), main.Hero()
+        boss.state, boss.cooldown, boss.phase = "idle", 100, 2
+        hero.pos.x = boss.pos.x - 400
+        boss.update(0.1, hero)
+        self.assertAlmostEqual(boss.walk_timer, 10.2 / main.GUNDYR_WALK_REFERENCE_SPEED)
+        previous = boss.walk_timer
+        hero.pos.x = boss.pos.x - 80
+        boss.update(0.1, hero)
+        self.assertAlmostEqual(boss.walk_timer, previous - 4.4 / main.GUNDYR_WALK_REFERENCE_SPEED)
+
+    def test_retreat_wraps_to_the_last_frame_without_resetting(self):
+        class FrameRecorder(pygame.Surface):
+            def blit(self, source, *args, **kwargs):
+                self.last_frame = source
+                return super().blit(source, *args, **kwargs)
+
+        boss = main.Gundyr()
+        boss.state, boss.moving, boss.facing = "idle", True, 1
+        boss.walk_timer = -main.GUNDYR_WALK_CYCLE_DURATION / 120
+        surface = FrameRecorder((main.WIDTH, main.HEIGHT))
+        boss.draw(surface, {"walk": self.frames}, pygame.Vector2())
+        self.assertIs(surface.last_frame, self.frames[-1])
 
     def test_legacy_walk_still_uses_ten_frames(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -198,25 +240,27 @@ class WalkExportTests(unittest.TestCase):
 
         pygame.init()
         pygame.display.set_mode((1, 1))
-        cls.base = []
+        renderer = build_walk_frames
 
-        def capture(cells):
-            cls.base = [cell.copy() for cell in cells]
-            return cells
+        def capture(source):
+            cls.source = source.copy()
+            return renderer(source, KEYFRAME_COUNT)
 
         # Reconstruct the 20 articulated key poses from the clean source armor.
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(exporter, "OUTPUT_DIR", Path(directory)):
-                with patch("interpolate_walk.interpolate_walk_cells", capture):
+                with patch("rig_gundyr_walk.build_walk_frames", capture):
                     with contextlib.redirect_stdout(io.StringIO()):
                         exporter.build_strip("gundyr", "walk", 104)
-        cls.generated = interpolate_walk_cells(cls.base)
+        cls.base = build_walk_keyframes(cls.source)
+        cls.generated = build_walk_frames(cls.source)
 
     @classmethod
     def tearDownClass(cls):
         pygame.quit()
 
     def test_articulated_key_poses_are_copied_unchanged(self):
+        self.assertEqual(len(self.generated), FRAME_COUNT)
         self.assertEqual(len(self.generated), len(self.base) * (WALK_INBETWEENS + 1))
         for before, after in zip(self.base, self.generated[::WALK_INBETWEENS + 1]):
             self.assertEqual(
@@ -264,14 +308,16 @@ class WalkExportTests(unittest.TestCase):
         self.assertLess(max(smooth), max(original) * 0.6)
         self.assertLess(smooth[-1], original[-1])
 
-    def test_upper_body_anchor_does_not_wobble(self):
+    def test_upper_body_sway_is_bounded_and_has_no_frame_jumps(self):
         from prepare_independent_sprites import opaque_bbox, upper_body_anchor_x
 
         anchors = []
         for frame in self.generated:
             bounds = opaque_bbox(frame)
             anchors.append(bounds.left + upper_body_anchor_x(frame, bounds))
-        self.assertLessEqual(max(anchors) - min(anchors), 1)
+        self.assertGreater(max(anchors) - min(anchors), 1)
+        self.assertLessEqual(max(anchors) - min(anchors), 6)
+        self.assertTrue(all(abs(a - b) <= 1 for a, b in zip(anchors, anchors[1:] + anchors[:1])))
 
     def test_empty_input_and_mismatched_cells(self):
         self.assertEqual(interpolate_walk_cells([]), [])
