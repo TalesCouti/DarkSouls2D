@@ -18,11 +18,6 @@ HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
 ROOT = Path(__file__).parent
-ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 60}
-# New drawn poses are independent files, not rig-generated strip cells.
-DRAWN_ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 16}
-GUNDYR_WALK_CYCLE_DURATION = 1.6
-GUNDYR_WALK_REFERENCE_SPEED = 90.0
 
 
 def clamp(value, low, high):
@@ -88,27 +83,11 @@ class SpriteArt:
     def _strips(prefix, animation_names, scale):
         output = {}
         for name in animation_names:
-            drawn = ROOT / "assets" / "animations_v6" / f"{prefix}_{name}"
-            if drawn.exists():
-                frame_count = DRAWN_ANIMATION_FRAME_COUNTS.get((prefix, name), 10)
-                expected = [drawn / f"{index:02}.png" for index in range(frame_count)]
-                if set(drawn.glob("*.png")) != set(expected):
-                    raise pygame.error(f"Invalid drawn animation files: {drawn.name}")
-                frames = [pygame.image.load(path).convert_alpha() for path in expected]
-                if len({frame.get_size() for frame in frames}) != 1:
-                    raise pygame.error(f"Inconsistent drawn animation sizes: {drawn.name}")
-                output[name] = [pygame.transform.scale_by(frame, scale) for frame in frames]
-                continue
             independent = ROOT / "assets" / "animations_v5" / f"{prefix}_{name}.png"
             legacy = ROOT / "assets" / "animations_v3" / f"{prefix}_{name}.png"
             path = independent if independent.exists() else legacy
             strip = pygame.image.load(path).convert_alpha()
-            frame_count = (
-                ANIMATION_FRAME_COUNTS.get((prefix, name), 10)
-                if path == independent else 10
-            )
-            if strip.get_width() % frame_count:
-                raise pygame.error(f"Invalid animation cell count: {path.name}")
+            frame_count = 10
             cell_w, cell_h = strip.get_width() // frame_count, strip.get_height()
             frames = []
             for column in range(frame_count):
@@ -399,7 +378,6 @@ class Gundyr:
         self.last_attack = ""
         self.flash = self.stagger = self.dead_time = 0.0
         self.moving = False
-        self.walk_timer = 0.0
 
     def receive(self, damage):
         if self.state in ("intro", "dead"):
@@ -483,7 +461,6 @@ class Gundyr:
     def update(self, dt, hero):
         events = []
         self.moving = False
-        movement_start_x = self.pos.x
         self.timer += dt
         self.flash = max(0, self.flash - dt)
         distance = abs(hero.pos.x - self.pos.x)
@@ -593,12 +570,6 @@ class Gundyr:
                 elif self.state != "stagger":
                     self.finish(1.15)
         self.pos.x = clamp(self.pos.x, LEFT_WALL + 65, RIGHT_WALL - 65)
-        # Advance by actual travel, not just elapsed time. Faster pursuit and
-        # slower retreat keep planted feet stable; retreat plays the gait back.
-        if self.state == "idle" and self.moving:
-            stride_distance = (self.pos.x - movement_start_x) * self.facing
-            self.moving = abs(stride_distance) > 1e-6
-            self.walk_timer += stride_distance / GUNDYR_WALK_REFERENCE_SPEED
         return events
 
     def draw(self, surface, sprites, offset):
@@ -640,12 +611,9 @@ class Gundyr:
         else:
             name, duration = "idle", 1.0
         frames = sprites[name]
-        if name == "walk":
-            frame_index = math.floor(
-                self.walk_timer / GUNDYR_WALK_CYCLE_DURATION * len(frames)
-            ) % len(frames)
-        elif name == "idle":
-            frame_index = int(self.timer * 4) % len(frames)
+        if name in ("idle", "walk"):
+            speed = 9 if name == "walk" else 4
+            frame_index = int(self.timer * speed) % len(frames)
         else:
             frame_index = min(len(frames) - 1, int(self.timer / duration * len(frames)))
         frame = frames[frame_index]

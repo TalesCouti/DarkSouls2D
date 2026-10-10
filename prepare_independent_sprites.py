@@ -62,21 +62,6 @@ def opaque_bbox(surface: pygame.Surface) -> pygame.Rect:
     return result
 
 
-def upper_body_anchor_x(surface: pygame.Surface, bbox: pygame.Rect) -> float:
-    """Return a stable horizontal anchor using the helmet and shoulders.
-
-    Centering a frame by its full bounds makes the body jump whenever the
-    halberd reaches farther. The upper third excludes its blade and gives the
-    walk cycle a visually stable body axis.
-    """
-    alpha = pygame.surfarray.array_alpha(surface)
-    upper_bottom = bbox.top + max(1, round(bbox.height * 0.35))
-    occupied_x = (alpha[:, bbox.top:upper_bottom] > ALPHA_THRESHOLD).nonzero()[0]
-    if not len(occupied_x):
-        return bbox.width / 2
-    return float(median(occupied_x)) - bbox.left
-
-
 def closest_clear_separator(values, nominal: int, radius: int) -> int:
     """Find a transparent line close to an expected invisible grid division."""
     low = max(1, nominal - radius)
@@ -128,19 +113,10 @@ def split_grid(sheet: pygame.Surface):
 
 
 def build_strip(prefix: str, animation: str, target_neutral_height: int):
-    if prefix == "gundyr" and animation == "walk":
-        # Replace the old one-pose rig with the newly DRAWN complete sprites.
-        # This also makes the normal re-export command safe: it cannot silently
-        # restore the rejected geometric/optical-flow animation.
-        from prepare_drawn_walk import export_walk
-
-        export_walk()
-        return
     source_prefix = "boss" if prefix == "gundyr" else prefix
     source_path = SOURCE_DIR / f"{source_prefix}_{animation}.png"
     sheet = pygame.image.load(source_path).convert_alpha()
     frames, metadata = split_grid(sheet)
-    frame_scale_multipliers = [1.0] * len(frames)
 
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
@@ -159,38 +135,32 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             lifts[index] = max(0.0, ground - bbox.bottom)
 
     prepared = []
-    for frame, (bbox, _), lift, multiplier in zip(
-        frames, metadata, lifts, frame_scale_multipliers
-    ):
-        anchor_x = bbox.width / 2
+    for frame, (bbox, _), lift in zip(frames, metadata, lifts):
         cropped = frame.subsurface(bbox).copy()
-        frame_scale = scale * multiplier
         size = (
-            max(1, round(cropped.get_width() * frame_scale)),
-            max(1, round(cropped.get_height() * frame_scale)),
+            max(1, round(cropped.get_width() * scale)),
+            max(1, round(cropped.get_height() * scale)),
         )
-        scaled = pygame.transform.smoothscale(cropped, size)
         prepared.append(
             (
-                scaled,
-                round(lift * frame_scale),
-                round(anchor_x * frame_scale),
+                pygame.transform.smoothscale(cropped, size),
+                round(lift * scale),
             )
         )
 
     cell_width = (
-        max(frame.get_width() for frame, _, _ in prepared)
+        max(frame.get_width() for frame, _ in prepared)
         + HORIZONTAL_PADDING * 2
     )
     cell_height = (
-        max(frame.get_height() + lift for frame, lift, _ in prepared)
+        max(frame.get_height() + lift for frame, lift in prepared)
         + TOP_PADDING
         + BOTTOM_PADDING
     )
+    strip = pygame.Surface((cell_width * len(prepared), cell_height), pygame.SRCALPHA)
     baseline = cell_height - BOTTOM_PADDING
-    cells = []
 
-    for index, (frame, lift, anchor) in enumerate(prepared):
+    for index, (frame, lift) in enumerate(prepared):
         isolated_cell = pygame.Surface((cell_width, cell_height), pygame.SRCALPHA)
         destination = (
             (cell_width - frame.get_width()) // 2,
@@ -208,24 +178,12 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             raise RuntimeError(
                 f"{source_path.name} frame {index + 1} entered its safety border"
             )
-        cells.append(isolated_cell)
-
-    strip = pygame.Surface((cell_width * len(cells), cell_height), pygame.SRCALPHA)
-    for index, cell in enumerate(cells):
-        content = opaque_bbox(cell)
-        if (
-            content.left < SAFETY_MARGIN
-            or content.right > cell_width - SAFETY_MARGIN
-            or content.top < SAFETY_MARGIN
-            or content.bottom > cell_height - 1
-        ):
-            raise RuntimeError(f"{source_path.name} frame {index + 1} entered its safety border")
-        strip.blit(cell, (index * cell_width, 0))
+        strip.blit(isolated_cell, (index * cell_width, 0))
 
     output_path = OUTPUT_DIR / f"{prefix}_{animation}.png"
     pygame.image.save(strip, output_path)
     print(
-        f"{output_path.name}: {len(cells)} frames, cell={cell_width}x{cell_height}, "
+        f"{output_path.name}: 10 frames, cell={cell_width}x{cell_height}, "
         f"source scale={scale:.3f}"
     )
 
