@@ -37,7 +37,16 @@ SOURCES = {
     ),
     "gundyr": (
         104,
-        ("sweep_a", "sweep_b", "thrust_a", "thrust_b", "slam", "special"),
+        (
+            "idle",
+            "walk",
+            "sweep_a",
+            "sweep_b",
+            "thrust_a",
+            "thrust_b",
+            "slam",
+            "special",
+        ),
     ),
 }
 
