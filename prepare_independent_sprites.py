@@ -62,6 +62,21 @@ def opaque_bbox(surface: pygame.Surface) -> pygame.Rect:
     return result
 
 
+def upper_body_anchor_x(surface: pygame.Surface, bbox: pygame.Rect) -> float:
+    """Return a stable horizontal anchor using the helmet and shoulders.
+
+    Centering a frame by its full bounds makes the body jump whenever the
+    halberd reaches farther. The upper third excludes its blade and gives the
+    walk cycle a visually stable body axis.
+    """
+    alpha = pygame.surfarray.array_alpha(surface)
+    upper_bottom = bbox.top + max(1, round(bbox.height * 0.35))
+    occupied_x = (alpha[:, bbox.top:upper_bottom] > ALPHA_THRESHOLD).nonzero()[0]
+    if not len(occupied_x):
+        return bbox.width / 2
+    return float(median(occupied_x)) - bbox.left
+
+
 def closest_clear_separator(values, nominal: int, radius: int) -> int:
     """Find a transparent line close to an expected invisible grid division."""
     low = max(1, nominal - radius)
@@ -117,15 +132,30 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     source_path = SOURCE_DIR / f"{source_prefix}_{animation}.png"
     sheet = pygame.image.load(source_path).convert_alpha()
     frames, metadata = split_grid(sheet)
+    frame_scale_multipliers = [1.0] * len(frames)
+    walk_key_heights = None
 
     # The walk source keeps the ten strong key poses. A second sheet contains
     # one transition pose after each key (including the loop from 10 back to
     # 1), so interleaving them produces a smoother 20-frame cycle without
     # weakening the readable foot contacts of the original animation.
     if prefix == "gundyr" and animation == "walk":
+        walk_key_heights = [metadata[0][0].height, metadata[-1][0].height]
+        key_neutral_height = median(walk_key_heights)
         inbetween_path = SOURCE_DIR / "boss_walk_inbetweens.png"
         inbetween_sheet = pygame.image.load(inbetween_path).convert_alpha()
         inbetween_frames, inbetween_metadata = split_grid(inbetween_sheet)
+        # The fifth generated transition touched the outer sheet edge. Reuse
+        # its matching clean key pose instead of ever exporting a clipped or
+        # duplicated axe head.
+        inbetween_frames[4] = frames[4].copy()
+        inbetween_metadata[4] = metadata[4]
+        inbetween_neutral_height = median(
+            (inbetween_metadata[0][0].height, inbetween_metadata[-1][0].height)
+        )
+        inbetween_scale = key_neutral_height / inbetween_neutral_height
+        inbetween_multipliers = [inbetween_scale] * GRID_COLUMNS * GRID_ROWS
+        inbetween_multipliers[4] = 1.0
         frames = [
             frame
             for pair in zip(frames, inbetween_frames)
@@ -136,11 +166,21 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             for pair in zip(metadata, inbetween_metadata)
             for frame_metadata in pair
         ]
+        frame_scale_multipliers = [
+            multiplier
+            for pair in zip(
+                [1.0] * GRID_COLUMNS * GRID_ROWS,
+                inbetween_multipliers,
+            )
+            for multiplier in pair
+        ]
 
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
     if prefix == "hero" and animation == "death":
         anchor_heights = [metadata[0][0].height]
+    elif walk_key_heights is not None:
+        anchor_heights = walk_key_heights
     else:
         anchor_heights = [metadata[0][0].height, metadata[-1][0].height]
     scale = target_neutral_height / median(anchor_heights)
@@ -153,36 +193,55 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             ground = top_ground if row == 0 else bottom_ground
             lifts[index] = max(0.0, ground - bbox.bottom)
 
+    stable_body_anchor = prefix == "gundyr" and animation == "walk"
     prepared = []
-    for frame, (bbox, _), lift in zip(frames, metadata, lifts):
-        cropped = frame.subsurface(bbox).copy()
-        size = (
-            max(1, round(cropped.get_width() * scale)),
-            max(1, round(cropped.get_height() * scale)),
+    for frame, (bbox, _), lift, multiplier in zip(
+        frames, metadata, lifts, frame_scale_multipliers
+    ):
+        anchor_x = (
+            upper_body_anchor_x(frame, bbox)
+            if stable_body_anchor
+            else bbox.width / 2
         )
+        cropped = frame.subsurface(bbox).copy()
+        frame_scale = scale * multiplier
+        size = (
+            max(1, round(cropped.get_width() * frame_scale)),
+            max(1, round(cropped.get_height() * frame_scale)),
+        )
+        scaled = pygame.transform.smoothscale(cropped, size)
         prepared.append(
             (
-                pygame.transform.smoothscale(cropped, size),
-                round(lift * scale),
+                scaled,
+                round(lift * frame_scale),
+                round(anchor_x * frame_scale),
             )
         )
 
-    cell_width = (
-        max(frame.get_width() for frame, _ in prepared)
-        + HORIZONTAL_PADDING * 2
-    )
+    if stable_body_anchor:
+        left_extent = max(anchor for _, _, anchor in prepared)
+        right_extent = max(frame.get_width() - anchor for frame, _, anchor in prepared)
+        cell_width = left_extent + right_extent + HORIZONTAL_PADDING * 2
+        body_axis = HORIZONTAL_PADDING + left_extent
+    else:
+        cell_width = (
+            max(frame.get_width() for frame, _, _ in prepared)
+            + HORIZONTAL_PADDING * 2
+        )
     cell_height = (
-        max(frame.get_height() + lift for frame, lift in prepared)
+        max(frame.get_height() + lift for frame, lift, _ in prepared)
         + TOP_PADDING
         + BOTTOM_PADDING
     )
     strip = pygame.Surface((cell_width * len(prepared), cell_height), pygame.SRCALPHA)
     baseline = cell_height - BOTTOM_PADDING
 
-    for index, (frame, lift) in enumerate(prepared):
+    for index, (frame, lift, anchor) in enumerate(prepared):
         isolated_cell = pygame.Surface((cell_width, cell_height), pygame.SRCALPHA)
         destination = (
-            (cell_width - frame.get_width()) // 2,
+            body_axis - anchor
+            if stable_body_anchor
+            else (cell_width - frame.get_width()) // 2,
             baseline - lift - frame.get_height(),
         )
         isolated_cell.blit(frame, destination)
