@@ -3,7 +3,9 @@
 The source is a generated 4x4 sheet. A connected opaque silhouette identifies
 each complete sprite (body AND weapon); explicit pelvis registration keeps
 the animation origin stable. Only crop, uniform whole-pose scale and padding
-are used. Row scale calibration corrects the generator's atlas-size variation.
+are used. Color/material corrections are painted in the generated source,
+not applied as a runtime tint. Row calibration corrects atlas-size variation;
+the walk's bent silhouette is deliberately shorter than the upright idle.
 Runtime consumes sixteen independent PNGs, never neighboring atlas cells.
 """
 
@@ -15,7 +17,7 @@ import pygame
 
 
 ROOT = Path(__file__).parent
-SOURCE = ROOT / "assets" / "source_v6" / "gundyr_walk.png"
+SOURCE = ROOT / "assets" / "source_v6" / "gundyr_walk_consistent.png"
 OUTPUT = ROOT / "assets" / "animations_v6" / "gundyr_walk"
 FRAME_COUNT = 16
 CELL_SIZE = (256, 124)
@@ -23,19 +25,24 @@ BODY_AXIS = 104
 BASELINE = CELL_SIZE[1] - 2
 ALPHA_THRESHOLD = 24
 MIN_SPRITE_PIXELS = 500
-# Artist registration points, in the ORIGINAL selected source's coordinates.
+# Artist registration points, in the corrected source's coordinates.
 # These identify the pelvis, not the changing blade extent or head tilt.
 PELVIS_X = (
-    195, 606, 1052, 1479,
-    201, 611, 1060, 1491,
-    202, 610, 1057, 1492,
-    207, 626, 1059, 1493,
+    212, 629, 1044, 1458,
+    214, 625, 1056, 1463,
+    218, 627, 1046, 1463,
+    218, 637, 1053, 1471,
 )
-SOURCE_SIZE = (1672, 941)
+SOURCE_SIZE = (1671, 941)
 # AI sheets can draw later rows at a smaller pixel scale. Correct each row as
 # a WHOLE, identically on both axes and on all four poses in it; do not stretch
 # a limb or scale individual poses to equal heights. Their drawn bob remains.
-ROW_SCALES = (104 / 231.5, 104 / 232.5, 104 / 225, 104 / 208.5)
+# Matching a crouched walk's full height to the 104px upright idle enlarged
+# its helmet, pauldrons and blade. At 86px their painted proportions match
+# the idle while the inclined torso and flexed knees keep their shorter pose.
+# This remains a single scale per ROW, not a per-frame height equalizer.
+WALK_POSE_HEIGHT = 86
+ROW_SCALES = tuple(WALK_POSE_HEIGHT / height for height in (172.5, 175, 176, 168.5))
 
 
 def source_drawings(sheet: pygame.Surface):

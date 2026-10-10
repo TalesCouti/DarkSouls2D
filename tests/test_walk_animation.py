@@ -4,6 +4,7 @@ import contextlib
 import io
 import os
 from pathlib import Path
+from statistics import median
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -66,7 +67,8 @@ class DrawnWalkTests(unittest.TestCase):
     def test_every_pose_is_distinct_including_the_torso(self):
         pixels = {pygame.image.tobytes(frame, "RGBA") for frame in self.frames}
         self.assertEqual(len(pixels), 16)
-        torso = pygame.Rect(36, 25, 50, 48)
+        torso = pygame.Rect(exporter.BODY_AXIS - 14,
+                            exporter.BASELINE - exporter.WALK_POSE_HEIGHT + 17, 38, 36)
         chest = {pygame.image.tobytes(frame.subsurface(torso), "RGBA") for frame in self.frames}
         self.assertEqual(len(chest), 16)
 
@@ -90,6 +92,46 @@ class DrawnWalkTests(unittest.TestCase):
         heights = [frame.get_bounding_rect(min_alpha=24).height for frame in self.frames]
         self.assertGreater(max(heights), min(heights))
         self.assertLessEqual(max(heights) - min(heights), 5)
+
+    def test_bent_walk_is_not_enlarged_to_the_upright_idle_height(self):
+        idle = main.SpriteArt._strips("gundyr", ("idle",), 1.0)["idle"]
+        idle_height = median(frame.get_bounding_rect(min_alpha=24).height for frame in idle)
+        # A bent torso and flexed knees must reduce pose height, not cause
+        # larger helmet/plates through a full-height normalization to idle.
+        for frame in self.frames:
+            height = frame.get_bounding_rect(min_alpha=24).height
+            self.assertGreater(height, idle_height * 0.75)
+            self.assertLess(height, idle_height * 0.90)
+
+    def test_generated_metal_palette_matches_idle_without_bright_silver_pop(self):
+        def palette(frames):
+            colors = [frame.get_at((x, y)) for frame in frames
+                      for y in range(frame.get_height()) for x in range(frame.get_width())
+                      if frame.get_at((x, y)).a > 200]
+            luminance = sorted(.2126 * color.r + .7152 * color.g + .0722 * color.b
+                               for color in colors)
+            levels = [luminance[int((len(luminance) - 1) * fraction)]
+                      for fraction in (.90, .95, .99)]
+            warmth = median(color.r - color.b for color in colors)
+            return levels, warmth
+
+        idle = main.SpriteArt._strips("gundyr", ("idle",), 1.0)["idle"]
+        reference, reference_warmth = palette(idle)
+        walk, walk_warmth = palette(self.frames)
+        # Allow different visible cloth/metal coverage and painted texture,
+        # but reject the bright cream/silver highlights of the old walk sheet.
+        for actual, expected, tolerance in zip(walk, reference, (12, 12, 25)):
+            self.assertLessEqual(abs(actual - expected), tolerance)
+        # A few RGB levels allow natural painted reflections/cloth coverage,
+        # but not the noticeably warm bronze tint of the previous drawings.
+        self.assertLessEqual(walk_warmth, reference_warmth + 5)
+
+    def test_corrected_source_has_wide_vertical_gutters_between_rows(self):
+        bounds = exporter.source_rects(self.source)
+        for row in range(3):
+            lowest = max(rect.bottom for rect in bounds[row * 4:row * 4 + 4])
+            next_top = min(rect.top for rect in bounds[(row + 1) * 4:(row + 2) * 4])
+            self.assertGreaterEqual(next_top - lowest, 32)
 
     def test_export_never_imports_warping_or_interpolation_tools(self):
         original_import = builtins.__import__
