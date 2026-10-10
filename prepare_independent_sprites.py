@@ -128,26 +128,24 @@ def split_grid(sheet: pygame.Surface):
 
 
 def build_strip(prefix: str, animation: str, target_neutral_height: int):
+    if prefix == "gundyr" and animation == "walk":
+        # Replace the old one-pose rig with the newly DRAWN complete sprites.
+        # This also makes the normal re-export command safe: it cannot silently
+        # restore the rejected geometric/optical-flow animation.
+        from prepare_drawn_walk import export_walk
+
+        export_walk()
+        return
     source_prefix = "boss" if prefix == "gundyr" else prefix
     source_path = SOURCE_DIR / f"{source_prefix}_{animation}.png"
     sheet = pygame.image.load(source_path).convert_alpha()
     frames, metadata = split_grid(sheet)
     frame_scale_multipliers = [1.0] * len(frames)
-    walk_key_heights = None
-
-    # Use one clean armor/weapon pose as the calibrated rig's texture source.
-    # The old sheet's grounded poses cannot produce a raised foot merely by
-    # optical-flow interpolation; new bent-knee key poses are baked below.
-    if prefix == "gundyr" and animation == "walk":
-        walk_key_heights = [metadata[0][0].height, metadata[-1][0].height]
-        frames, metadata, frame_scale_multipliers = frames[:1], metadata[:1], [1.0]
 
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
     if prefix == "hero" and animation == "death":
         anchor_heights = [metadata[0][0].height]
-    elif walk_key_heights is not None:
-        anchor_heights = walk_key_heights
     else:
         anchor_heights = [metadata[0][0].height, metadata[-1][0].height]
     scale = target_neutral_height / median(anchor_heights)
@@ -160,16 +158,11 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             ground = top_ground if row == 0 else bottom_ground
             lifts[index] = max(0.0, ground - bbox.bottom)
 
-    stable_body_anchor = prefix == "gundyr" and animation == "walk"
     prepared = []
     for frame, (bbox, _), lift, multiplier in zip(
         frames, metadata, lifts, frame_scale_multipliers
     ):
-        anchor_x = (
-            upper_body_anchor_x(frame, bbox)
-            if stable_body_anchor
-            else bbox.width / 2
-        )
+        anchor_x = bbox.width / 2
         cropped = frame.subsurface(bbox).copy()
         frame_scale = scale * multiplier
         size = (
@@ -185,30 +178,22 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             )
         )
 
-    if stable_body_anchor:
-        from rig_gundyr_walk import BODY_AXIS, SOURCE_SIZE, build_walk_frames
-
-        cell_width, cell_height = SOURCE_SIZE
-        body_axis = BODY_AXIS
-    else:
-        cell_width = (
-            max(frame.get_width() for frame, _, _ in prepared)
-            + HORIZONTAL_PADDING * 2
-        )
-        cell_height = (
-            max(frame.get_height() + lift for frame, lift, _ in prepared)
-            + TOP_PADDING
-            + BOTTOM_PADDING
-        )
+    cell_width = (
+        max(frame.get_width() for frame, _, _ in prepared)
+        + HORIZONTAL_PADDING * 2
+    )
+    cell_height = (
+        max(frame.get_height() + lift for frame, lift, _ in prepared)
+        + TOP_PADDING
+        + BOTTOM_PADDING
+    )
     baseline = cell_height - BOTTOM_PADDING
     cells = []
 
     for index, (frame, lift, anchor) in enumerate(prepared):
         isolated_cell = pygame.Surface((cell_width, cell_height), pygame.SRCALPHA)
         destination = (
-            body_axis - anchor
-            if stable_body_anchor
-            else (cell_width - frame.get_width()) // 2,
+            (cell_width - frame.get_width()) // 2,
             baseline - lift - frame.get_height(),
         )
         isolated_cell.blit(frame, destination)
@@ -224,11 +209,6 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
                 f"{source_path.name} frame {index + 1} entered its safety border"
             )
         cells.append(isolated_cell)
-
-    if stable_body_anchor:
-        # Sample the entire articulated pose at every frame. Cross-fading or
-        # optical-flowing already bent limbs can smear knee/ankle armor.
-        cells = build_walk_frames(cells[0])
 
     strip = pygame.Surface((cell_width * len(cells), cell_height), pygame.SRCALPHA)
     for index, cell in enumerate(cells):

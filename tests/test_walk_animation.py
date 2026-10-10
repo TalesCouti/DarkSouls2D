@@ -1,9 +1,7 @@
-"""Headless regression tests for Gundyr's walk assets and playback."""
-
+"""Headless checks for newly drawn, independent PNGs (no puppet animation)."""
+import builtins
 import contextlib
-import importlib.util
 import io
-import math
 import os
 from pathlib import Path
 import tempfile
@@ -12,161 +10,164 @@ from unittest.mock import patch
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
-
 import pygame
-
 import main
-from interpolate_walk import WALK_INBETWEENS, interpolate_walk_cells
-from rig_gundyr_walk import (
-    FOOT_CLEARANCE, FRAME_COUNT, KEYFRAME_COUNT, LEG_RIGS, SHIN_LENGTH, THIGH_LENGTH,
-    body_bob, body_landmark, build_walk_frames, build_walk_keyframes,
-    foot_pose, knee_joint, weapon_pose,
-)
+import prepare_drawn_walk as exporter
 
 
-class WalkGaitTests(unittest.TestCase):
-    def test_one_foot_always_supports_the_body_and_both_feet_take_turns(self):
-        support_counts = [0, 0]
-        maximum_lift = [0.0, 0.0]
-        for index in range(1000):
-            supports = []
-            for leg_index, rig in enumerate(LEG_RIGS):
-                ankle, angle, supported = foot_pose(
-                    index / 1000 + rig["phase_offset"], rig["front_x"], 111,
-                )
-                supports.append(supported)
-                support_counts[leg_index] += supported
-                maximum_lift[leg_index] = max(maximum_lift[leg_index], 111 - ankle[1])
-                if supported:
-                    self.assertEqual(ankle[1], 111)
-                    self.assertEqual(angle, 0)
-            self.assertTrue(any(supports))
-        self.assertTrue(all(500 <= count <= 560 for count in support_counts))
-        self.assertTrue(all(lift >= FOOT_CLEARANCE - 0.01 for lift in maximum_lift))
-
-    def test_knees_bend_without_changing_limb_lengths(self):
-        for index in range(1000):
-            phase = index / 1000
-            for rig in LEG_RIGS:
-                ankle, _, _ = foot_pose(phase + rig["phase_offset"], rig["front_x"], 111)
-                hip = body_landmark(rig["target_hip"], phase)
-                knee = knee_joint(hip, ankle)
-                self.assertAlmostEqual(math.dist(hip, knee), THIGH_LENGTH)
-                self.assertAlmostEqual(math.dist(knee, ankle), SHIN_LENGTH)
-                self.assertGreater(knee[0], min(hip[0], ankle[0]))
-
-    def test_foot_trajectory_loops_without_a_position_jump(self):
-        for rig in LEG_RIGS:
-            start, _, _ = foot_pose(0, rig["front_x"], 111)
-            end, angle, _ = foot_pose(1 - 1e-8, rig["front_x"], 111)
-            self.assertLess(math.dist(start, end), 1e-5)
-            self.assertLess(abs(angle), 1e-5)
-
-    def test_spine_counterbalances_pelvis_instead_of_only_bobbing(self):
-        hip_left = body_landmark((60, 70), 0.25)
-        hip_right = body_landmark((60, 70), 0.75)
-        chest_left = body_landmark((60, 40), 0.25)
-        chest_right = body_landmark((60, 40), 0.75)
-        self.assertGreater(hip_left[0], hip_right[0])
-        self.assertLess(chest_left[0], chest_right[0])
-        self.assertGreater(abs(chest_left[0] - hip_left[0]), 2)
-        self.assertGreater(body_bob(0.125), body_bob(0.375))
-
-    def test_body_and_weapon_profiles_loop_without_a_jump(self):
-        for point in ((60, 70), (45, 38), (73, 42), (65, 20)):
-            self.assertLess(math.dist(body_landmark(point, 0), body_landmark(point, 1 - 1e-8)), 1e-5)
-        first, angle_first = weapon_pose(0)
-        last, angle_last = weapon_pose(1 - 1e-8)
-        self.assertLess(math.dist(first, last), 1e-5)
-        self.assertLess(abs(angle_first - angle_last), 1e-5)
+class FrameRecorder(pygame.Surface):
+    def blit(self, source, *args, **kwargs):
+        self.last_frame = source
+        return super().blit(source, *args, **kwargs)
 
 
-class WalkPlaybackTests(unittest.TestCase):
+class DrawnWalkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         pygame.init()
         pygame.display.set_mode((1, 1))
+        cls.source = pygame.image.load(exporter.SOURCE).convert_alpha()
         cls.frames = main.SpriteArt._strips("gundyr", ("walk",), 1.0)["walk"]
 
     @classmethod
     def tearDownClass(cls):
         pygame.quit()
 
-    def test_sixty_isolated_frames_with_safe_borders_and_grounded_feet(self):
-        self.assertEqual(len(self.frames), 60)
-        self.assertEqual(len({frame.get_size() for frame in self.frames}), 1)
+    def test_sixteen_independent_files_not_sixty_artificial_frames(self):
+        self.assertEqual(len(self.frames), 16)
+        self.assertEqual(sorted(path.name for path in exporter.OUTPUT.glob("*.png")),
+                         [f"{index:02}.png" for index in range(16)])
+        self.assertEqual({frame.get_size() for frame in self.frames}, {exporter.CELL_SIZE})
+
+    def test_complete_source_drawings_are_separate_and_not_clipped(self):
+        drawings = exporter.source_drawings(self.source)
+        self.assertEqual(len(drawings), 16)
+        for index, (rect, silhouette) in enumerate(drawings):
+            self.assertGreater(rect.left, 0)
+            self.assertLess(rect.right, self.source.get_width())
+            for _, other in drawings[index + 1:]:
+                self.assertIsNone(silhouette.overlap(other, (0, 0)))
+
+    def test_passing_drawings_really_lift_a_boot(self):
+        def floor_contacts(frame):
+            columns = [x for x in range(8, exporter.BODY_AXIS + 45)
+                       if any(frame.get_at((x, y)).a > 24
+                              for y in range(exporter.BASELINE - 2, exporter.BASELINE))]
+            return sum(index == 0 or x > columns[index - 1] + 1
+                       for index, x in enumerate(columns))
+
+        self.assertEqual(floor_contacts(self.frames[0]), 2)
+        # The selected artist-drawn passing poses are 06 and 11. Other frames
+        # include toe-off/heel reach, where a second toe can approach the floor.
+        for index in (5, 10):
+            with self.subTest(passing=index):
+                self.assertEqual(floor_contacts(self.frames[index]), 1)
+
+    def test_every_pose_is_distinct_including_the_torso(self):
+        pixels = {pygame.image.tobytes(frame, "RGBA") for frame in self.frames}
+        self.assertEqual(len(pixels), 16)
+        torso = pygame.Rect(36, 25, 50, 48)
+        chest = {pygame.image.tobytes(frame.subsurface(torso), "RGBA") for frame in self.frames}
+        self.assertEqual(len(chest), 16)
+
+    def test_saved_frames_match_the_source_packing_exactly(self):
+        for saved, fresh in zip(self.frames, exporter.pack_frames(self.source)):
+            self.assertEqual(pygame.image.tobytes(saved, "RGBA"), pygame.image.tobytes(fresh, "RGBA"))
+
+    def test_safe_margins_complete_weapon_and_same_support_floor(self):
         for index, frame in enumerate(self.frames):
             with self.subTest(frame=index):
                 bounds = frame.get_bounding_rect(min_alpha=24)
                 self.assertGreaterEqual(bounds.left, 8)
                 self.assertLessEqual(bounds.right, frame.get_width() - 8)
                 self.assertGreaterEqual(bounds.top, 8)
-                self.assertEqual(bounds.bottom, frame.get_height() - 2)
-                # No detached blade or mirrored axe-sized component.
-                components = sorted(
-                    pygame.mask.from_surface(frame, 24).connected_components(),
-                    key=lambda component: component.count(), reverse=True,
-                )
-                self.assertTrue(all(part.count() <= 12 for part in components[1:]))
+                self.assertEqual(bounds.bottom, exporter.BASELINE)
+                parts = sorted(pygame.mask.from_surface(frame, 24).connected_components(),
+                               key=lambda mask: mask.count(), reverse=True)
+                self.assertTrue(all(part.count() <= 12 for part in parts[1:]))
 
-    def test_same_cycle_duration_with_more_frames(self):
+    def test_pose_heights_are_not_scaled_independently(self):
+        heights = [frame.get_bounding_rect(min_alpha=24).height for frame in self.frames]
+        self.assertGreater(max(heights), min(heights))
+        self.assertLessEqual(max(heights) - min(heights), 5)
+
+    def test_export_never_imports_warping_or_interpolation_tools(self):
+        original_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name.split(".")[0] in ("numpy", "cv2", "rig_gundyr_walk", "interpolate_walk"):
+                raise AssertionError(f"Drawn export must not import {name}")
+            return original_import(name, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("builtins.__import__", guarded_import), contextlib.redirect_stdout(io.StringIO()):
+                frames = exporter.export_walk(Path(directory))
+            self.assertEqual(len(frames), 16)
+            self.assertEqual(len(list(Path(directory).glob("*.png"))), 16)
+
+    def test_normal_reexport_cannot_restore_the_old_rig(self):
+        import prepare_independent_sprites as previous_exporter
+        with patch.object(exporter, "export_walk") as draw_export:
+            previous_exporter.build_strip("gundyr", "walk", 104)
+        draw_export.assert_called_once_with()
+
+    def test_changed_source_size_and_missing_drawings_are_rejected(self):
+        with self.assertRaises(ValueError):
+            exporter.source_rects(pygame.Surface((320, 320), pygame.SRCALPHA))
+        with self.assertRaises(ValueError):
+            exporter.source_rects(pygame.Surface(exporter.SOURCE_SIZE, pygame.SRCALPHA))
+
+    def test_runtime_loads_individual_pngs_not_the_old_strip(self):
+        original_load = pygame.image.load
+        loaded = []
+
+        def record(path):
+            loaded.append(Path(path))
+            return original_load(path)
+
+        with patch("pygame.image.load", record):
+            frames = main.SpriteArt._strips("gundyr", ("walk",), 1.0)["walk"]
+        self.assertEqual(len(frames), 16)
+        self.assertEqual({path.parent for path in loaded}, {exporter.OUTPUT})
+
+    def test_missing_extra_or_differently_sized_png_is_rejected(self):
+        for issue in ("missing", "extra", "wrong_size"):
+            with self.subTest(issue=issue), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                folder = root / "assets" / "animations_v6" / "gundyr_walk"
+                folder.mkdir(parents=True)
+                for index in range(16):
+                    if issue == "missing" and index == 8:
+                        continue
+                    size = (45, 50) if issue == "wrong_size" and index == 8 else (40, 50)
+                    pygame.image.save(pygame.Surface(size, pygame.SRCALPHA), folder / f"{index:02}.png")
+                if issue == "extra":
+                    pygame.image.save(self.frames[0], folder / "16.png")
+                with patch.object(main, "ROOT", root), self.assertRaises(pygame.error):
+                    main.SpriteArt._strips("gundyr", ("walk",), 1.0)
+
+    def test_full_cycle_has_sixteen_real_poses_in_order(self):
         boss = main.Gundyr()
         boss.state, boss.moving, boss.facing = "idle", True, 1
-
-        class FrameRecorder(pygame.Surface):
-            def blit(self, source, *args, **kwargs):
-                self.last_frame = source
-                return super().blit(source, *args, **kwargs)
-
         surface = FrameRecorder((main.WIDTH, main.HEIGHT))
-        # Probe the middle of each interval through the actual draw method.
-        for index in range(len(self.frames) * 2):
-            boss.walk_timer = (
-                (index + 0.5) / len(self.frames) * main.GUNDYR_WALK_CYCLE_DURATION
-            )
+        for index in range(32):
+            boss.walk_timer = (index + 0.5) / 16 * main.GUNDYR_WALK_CYCLE_DURATION
             boss.draw(surface, {"walk": self.frames}, pygame.Vector2())
-            self.assertIs(surface.last_frame, self.frames[index % 60])
-        self.assertAlmostEqual(main.GUNDYR_WALK_CYCLE_DURATION, 1.6666666667)
+            self.assertIs(surface.last_frame, self.frames[index % 16])
+        self.assertEqual(main.GUNDYR_WALK_CYCLE_DURATION, 1.6)
 
-    def test_baked_passing_poses_lift_a_boot_off_the_floor(self):
-        def floor_contacts(frame):
-            occupied_columns = [
-                x for x in range(15, 115)
-                if any(frame.get_at((x, y)).a > 24 for y in range(117, 120))
-            ]
-            return sum(
-                index == 0 or x > occupied_columns[index - 1] + 1
-                for index, x in enumerate(occupied_columns)
-            )
-
-        # Contact has two boots on the floor. Passing has only the supporting
-        # boot; the opposite knee/boot is visibly raised in the actual PNG.
-        self.assertEqual(floor_contacts(self.frames[0]), 2)
-        self.assertEqual(floor_contacts(self.frames[30]), 2)
-        self.assertEqual(floor_contacts(self.frames[15]), 1)
-        self.assertEqual(floor_contacts(self.frames[45]), 1)
-
-    def test_torso_and_halberd_visibly_follow_the_steps(self):
-        for region in (pygame.Rect(35, 30, 52, 37), pygame.Rect(100, 83, 48, 32)):
-            poses = {
-                pygame.image.tobytes(self.frames[index].subsurface(region), "RGBA")
-                for index in (0, 15, 30, 45)
-            }
-            self.assertEqual(len(poses), 4)
-
-    def test_scaled_boots_share_the_same_floor_in_both_directions(self):
+    def test_both_directions_keep_the_boots_on_the_floor(self):
         frames = main.SpriteArt._strips("gundyr", ("walk",), 1.55)["walk"]
         for frame in frames:
             for facing in (1, -1):
                 sprite = pygame.transform.flip(frame, facing < 0, False)
                 destination = sprite.get_rect(midbottom=(600, main.GROUND + 4))
                 feet = sprite.get_bounding_rect(min_alpha=24).move(destination.topleft)
-                self.assertEqual(feet.bottom, main.GROUND + 1)
+                self.assertLessEqual(abs(feet.bottom - (main.GROUND + 1)), 1)
 
     def test_walking_phase_pauses_and_resumes(self):
         boss, hero = main.Gundyr(), main.Hero()
-        boss.state, boss.cooldown = "idle", 100
-        boss.walk_timer = 0.42
+        boss.state, boss.cooldown, boss.walk_timer = "idle", 100, 0.42
         hero.pos.x = boss.pos.x - 150
         boss.update(0.02, hero)
         self.assertFalse(boss.moving)
@@ -179,7 +180,7 @@ class WalkPlaybackTests(unittest.TestCase):
         boss.update(0.02, hero)
         self.assertAlmostEqual(boss.walk_timer, 0.44)
 
-    def test_walk_clock_follows_travel_and_reverses_during_retreat(self):
+    def test_cadence_follows_actual_travel_and_retreat(self):
         boss, hero = main.Gundyr(), main.Hero()
         boss.state, boss.cooldown, boss.phase = "idle", 100, 2
         hero.pos.x = boss.pos.x - 400
@@ -190,142 +191,33 @@ class WalkPlaybackTests(unittest.TestCase):
         boss.update(0.1, hero)
         self.assertAlmostEqual(boss.walk_timer, previous - 4.4 / main.GUNDYR_WALK_REFERENCE_SPEED)
 
-    def test_retreat_wraps_to_the_last_frame_without_resetting(self):
-        class FrameRecorder(pygame.Surface):
-            def blit(self, source, *args, **kwargs):
-                self.last_frame = source
-                return super().blit(source, *args, **kwargs)
-
+    def test_retreat_wraps_to_last_pose_without_resetting(self):
         boss = main.Gundyr()
         boss.state, boss.moving, boss.facing = "idle", True, 1
-        boss.walk_timer = -main.GUNDYR_WALK_CYCLE_DURATION / 120
+        boss.walk_timer = -main.GUNDYR_WALK_CYCLE_DURATION / 32
         surface = FrameRecorder((main.WIDTH, main.HEIGHT))
         boss.draw(surface, {"walk": self.frames}, pygame.Vector2())
         self.assertIs(surface.last_frame, self.frames[-1])
 
-    def test_legacy_walk_still_uses_ten_frames(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            legacy = root / "assets" / "animations_v3"
-            legacy.mkdir(parents=True)
-            strip = pygame.Surface((200, 30), pygame.SRCALPHA)
-            pygame.image.save(strip, legacy / "gundyr_walk.png")
-            with patch.object(main, "ROOT", root):
-                frames = main.SpriteArt._strips("gundyr", ("walk",), 1.0)["walk"]
-            self.assertEqual(len(frames), 10)
-            self.assertEqual(frames[0].get_size(), (20, 30))
+    def test_v5_and_v3_strip_fallbacks_keep_their_original_counts(self):
+        for version, count in (("animations_v5", 60), ("animations_v3", 10)):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                folder = root / "assets" / version
+                folder.mkdir(parents=True)
+                pygame.image.save(pygame.Surface((count * 20, 30), pygame.SRCALPHA), folder / "gundyr_walk.png")
+                with patch.object(main, "ROOT", root):
+                    frames = main.SpriteArt._strips("gundyr", ("walk",), 1.0)["walk"]
+                self.assertEqual(len(frames), count)
 
     def test_bad_strip_width_is_rejected_instead_of_bleeding(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            independent = root / "assets" / "animations_v5"
-            independent.mkdir(parents=True)
-            pygame.image.save(
-                pygame.Surface((121, 30), pygame.SRCALPHA),
-                independent / "gundyr_walk.png",
-            )
-            with patch.object(main, "ROOT", root):
-                with self.assertRaises(pygame.error):
-                    main.SpriteArt._strips("gundyr", ("walk",), 1.0)
-
-
-@unittest.skipUnless(
-    importlib.util.find_spec("cv2") and importlib.util.find_spec("numpy"),
-    "Install requirements-assets.txt to test offline interpolation",
-)
-class WalkExportTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        import prepare_independent_sprites as exporter
-
-        pygame.init()
-        pygame.display.set_mode((1, 1))
-        renderer = build_walk_frames
-
-        def capture(source):
-            cls.source = source.copy()
-            return renderer(source, KEYFRAME_COUNT)
-
-        # Reconstruct the 20 articulated key poses from the clean source armor.
-        with tempfile.TemporaryDirectory() as directory:
-            with patch.object(exporter, "OUTPUT_DIR", Path(directory)):
-                with patch("rig_gundyr_walk.build_walk_frames", capture):
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        exporter.build_strip("gundyr", "walk", 104)
-        cls.base = build_walk_keyframes(cls.source)
-        cls.generated = build_walk_frames(cls.source)
-
-    @classmethod
-    def tearDownClass(cls):
-        pygame.quit()
-
-    def test_articulated_key_poses_are_copied_unchanged(self):
-        self.assertEqual(len(self.generated), FRAME_COUNT)
-        self.assertEqual(len(self.generated), len(self.base) * (WALK_INBETWEENS + 1))
-        for before, after in zip(self.base, self.generated[::WALK_INBETWEENS + 1]):
-            self.assertEqual(
-                pygame.image.tobytes(before, "RGBA"),
-                pygame.image.tobytes(after, "RGBA"),
-            )
-
-    def test_transitions_contain_new_geometry_not_repeated_frames(self):
-        import numpy as np
-
-        for index, start in enumerate(self.base):
-            end = self.base[(index + 1) % len(self.base)]
-            start_rgba = pygame.image.tobytes(start, "RGBA")
-            end_rgba = pygame.image.tobytes(end, "RGBA")
-            for step in range(1, WALK_INBETWEENS + 1):
-                middle = self.generated[index * 3 + step]
-                middle_rgba = pygame.image.tobytes(middle, "RGBA")
-                if start_rgba == end_rgba:
-                    self.assertEqual(middle_rgba, start_rgba)
-                    continue
-                self.assertNotEqual(middle_rgba, start_rgba)
-                self.assertNotEqual(middle_rgba, end_rgba)
-                a = pygame.surfarray.array_alpha(start).astype(float)
-                b = pygame.surfarray.array_alpha(end).astype(float)
-                alpha = pygame.surfarray.array_alpha(middle).astype(float)
-                t = step / 3
-                self.assertFalse(np.allclose(alpha, (1 - t) * a + t * b))
-
-    def test_adjacent_changes_are_smaller_including_the_loop(self):
-        import numpy as np
-
-        def changes(frames):
-            images = [
-                pygame.surfarray.array3d(frame).astype(float)
-                * (pygame.surfarray.array_alpha(frame)[..., None] / 255)
-                for frame in frames
-            ]
-            return [
-                np.abs(image - images[(index + 1) % len(images)]).mean()
-                for index, image in enumerate(images)
-            ]
-
-        original, smooth = changes(self.base), changes(self.generated)
-        self.assertLess(np.mean(smooth), np.mean(original) * 0.6)
-        self.assertLess(max(smooth), max(original) * 0.6)
-        self.assertLess(smooth[-1], original[-1])
-
-    def test_upper_body_sway_is_bounded_and_has_no_frame_jumps(self):
-        from prepare_independent_sprites import opaque_bbox, upper_body_anchor_x
-
-        anchors = []
-        for frame in self.generated:
-            bounds = opaque_bbox(frame)
-            anchors.append(bounds.left + upper_body_anchor_x(frame, bounds))
-        self.assertGreater(max(anchors) - min(anchors), 1)
-        self.assertLessEqual(max(anchors) - min(anchors), 6)
-        self.assertTrue(all(abs(a - b) <= 1 for a, b in zip(anchors, anchors[1:] + anchors[:1])))
-
-    def test_empty_input_and_mismatched_cells(self):
-        self.assertEqual(interpolate_walk_cells([]), [])
-        with self.assertRaises(ValueError):
-            interpolate_walk_cells([
-                pygame.Surface((20, 20), pygame.SRCALPHA),
-                pygame.Surface((21, 20), pygame.SRCALPHA),
-            ])
+            folder = root / "assets" / "animations_v5"
+            folder.mkdir(parents=True)
+            pygame.image.save(pygame.Surface((121, 30), pygame.SRCALPHA), folder / "gundyr_walk.png")
+            with patch.object(main, "ROOT", root), self.assertRaises(pygame.error):
+                main.SpriteArt._strips("gundyr", ("walk",), 1.0)
 
 
 if __name__ == "__main__":

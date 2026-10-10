@@ -34,12 +34,18 @@ Durante o desenvolvimento, as hitboxes começam visíveis: azul para o jogador, 
 
 ## Animações
 
-Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte independente por movimento em `assets/source_v5/`, organizada em uma grade invisível 5×2. O exportador transforma cada fonte em células isoladas em `assets/animations_v5/`, com margem de segurança, botas completas e linha de chão normalizada. Assim nenhuma espada, alabarda ou parte dos pés invade o quadro vizinho.
+As animações do cavaleiro e os golpes do chefe usam uma fonte independente por movimento em `assets/source_v5/`, organizada em uma grade invisível 5×2. O exportador transforma cada fonte em células isoladas em `assets/animations_v5/`, com margem de segurança, botas completas e linha de chão normalizada. A nova caminhada do Gundyr usa desenhos próprios em `assets/source_v6/gundyr_walk.png`, exportados como **um PNG por quadro** em `assets/animations_v6/gundyr_walk/`. O jogo prioriza esses arquivos individuais, que não podem capturar pedaços de um quadro vizinho.
 
 - Cavaleiro: idle, corrida, rolamento, defesa, beber Estus, morte com pose final deitada, dois ataques leves e dois ataques fortes.
-- Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada com 60 quadros a 36 quadros por segundo (ciclo de 1,67 s), duas varreduras, duas estocadas, golpe vertical e movimentos especiais. A caminhada preserva a sequência das passadas ao parar e retomar o movimento.
+- Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada com 16 poses novas desenhadas (100 ms por quadro, ciclo-base de 1,6 s), duas varreduras, duas estocadas, golpe vertical e movimentos especiais. A caminhada preserva a sequência das passadas ao parar e retomar o movimento.
 
-Na caminhada, uma pose limpa fornece a textura original da armadura. O movimento foi revisto usando as oito poses do GIF de referência apenas como guia de movimento, sem copiar seu personagem. Pelve, tronco, ombros, braços e capa acompanham as passadas; a alabarda balança como uma peça rígida e as mãos seguem os mesmos pontos de pegada. As pernas usam proporções corrigidas, com apoio e elevação alternados. Os 60 quadros são renderizados diretamente do rig completo, sem misturar imagens de poses diferentes, mantendo o ciclo-base de 1,67 s e a linha do pé de apoio. A fase acompanha a distância percorrida: acelera na perseguição da fase 2 e roda ao contrário e mais lentamente quando Gundyr recua, evitando arrastar os pés.
+Na caminhada, cada quadro é um desenho completo novo criado com geração de imagem, preservando o Gundyr, a armadura e a alabarda. O GIF e o diagrama de caminhada fornecidos pelo usuário foram usados como referência de movimento, sem trocar o personagem. O exportador não monta membros, não deforma poses e não cria quadros por optical flow ou crossfade: faz somente extração da silhueta completa, escala uniforme nos dois eixos e registro de origem/chão. A escala é calibrada por linha para compensar a diferença de tamanho na fonte gerada, sem alterar a anatomia nem igualar a altura de cada pose. Os 16 PNGs são reproduzidos diretamente. O arquivo `assets/source_v6/gundyr_walk.md` guarda os prompts e a origem da fonte selecionada. O relógio da animação continua acompanhando a distância percorrida e inverte ao recuar. Os scripts antigos `rig_gundyr_walk.py` e `interpolate_walk.py` ficam como histórico, mas não são chamados pelo jogo nem pelo comando de reexportação atual.
+
+Para reexportar somente os novos desenhos (precisa apenas de Pygame):
+
+```powershell
+py prepare_drawn_walk.py
+```
 
 Os atlases-fonte antigos ficam em `assets/hero_v3_atlas.png` e `assets/gundyr_v3_atlas.png`. Para reexportá-los, execute `py prepare_sprites.py`. Para reexportar as animações independentes corrigidas:
 
@@ -48,4 +54,4 @@ py -m pip install -r requirements-assets.txt
 py prepare_independent_sprites.py
 ```
 
-NumPy e OpenCV são usados apenas pelo exportador; para jogar basta instalar `requirements.txt`. Para verificar a caminhada e a interpolação, execute `py -m unittest discover -s tests -v` com as ferramentas de exportação instaladas.
+O exportador das fontes antigas usa NumPy; OpenCV era usado pelo método geométrico anterior. Nenhum deles é necessário para jogar, exportar a nova caminhada ou executar seus testes. Basta `requirements.txt`. Para verificar os novos PNGs, recorte, chão e reprodução, execute `py -m unittest discover -s tests -v`.

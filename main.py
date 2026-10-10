@@ -19,8 +19,9 @@ HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
 ROOT = Path(__file__).parent
 ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 60}
-# Adding inbetweens must not speed up the complete pair of footsteps.
-GUNDYR_WALK_CYCLE_DURATION = 20 / 12
+# New drawn poses are independent files, not rig-generated strip cells.
+DRAWN_ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 16}
+GUNDYR_WALK_CYCLE_DURATION = 1.6
 GUNDYR_WALK_REFERENCE_SPEED = 90.0
 
 
@@ -87,6 +88,17 @@ class SpriteArt:
     def _strips(prefix, animation_names, scale):
         output = {}
         for name in animation_names:
+            drawn = ROOT / "assets" / "animations_v6" / f"{prefix}_{name}"
+            if drawn.exists():
+                frame_count = DRAWN_ANIMATION_FRAME_COUNTS.get((prefix, name), 10)
+                expected = [drawn / f"{index:02}.png" for index in range(frame_count)]
+                if set(drawn.glob("*.png")) != set(expected):
+                    raise pygame.error(f"Invalid drawn animation files: {drawn.name}")
+                frames = [pygame.image.load(path).convert_alpha() for path in expected]
+                if len({frame.get_size() for frame in frames}) != 1:
+                    raise pygame.error(f"Inconsistent drawn animation sizes: {drawn.name}")
+                output[name] = [pygame.transform.scale_by(frame, scale) for frame in frames]
+                continue
             independent = ROOT / "assets" / "animations_v5" / f"{prefix}_{name}.png"
             legacy = ROOT / "assets" / "animations_v3" / f"{prefix}_{name}.png"
             path = independent if independent.exists() else legacy
