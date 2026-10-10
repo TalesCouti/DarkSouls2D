@@ -118,6 +118,25 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     sheet = pygame.image.load(source_path).convert_alpha()
     frames, metadata = split_grid(sheet)
 
+    # The walk source keeps the ten strong key poses. A second sheet contains
+    # one transition pose after each key (including the loop from 10 back to
+    # 1), so interleaving them produces a smoother 20-frame cycle without
+    # weakening the readable foot contacts of the original animation.
+    if prefix == "gundyr" and animation == "walk":
+        inbetween_path = SOURCE_DIR / "boss_walk_inbetweens.png"
+        inbetween_sheet = pygame.image.load(inbetween_path).convert_alpha()
+        inbetween_frames, inbetween_metadata = split_grid(inbetween_sheet)
+        frames = [
+            frame
+            for pair in zip(frames, inbetween_frames)
+            for frame in pair
+        ]
+        metadata = [
+            frame_metadata
+            for pair in zip(metadata, inbetween_metadata)
+            for frame_metadata in pair
+        ]
+
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
     if prefix == "hero" and animation == "death":
@@ -183,7 +202,7 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     output_path = OUTPUT_DIR / f"{prefix}_{animation}.png"
     pygame.image.save(strip, output_path)
     print(
-        f"{output_path.name}: 10 frames, cell={cell_width}x{cell_height}, "
+        f"{output_path.name}: {len(prepared)} frames, cell={cell_width}x{cell_height}, "
         f"source scale={scale:.3f}"
     )
 

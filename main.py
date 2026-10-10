@@ -18,6 +18,7 @@ HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
 ROOT = Path(__file__).parent
+ANIMATION_FRAME_COUNTS = {("gundyr", "walk"): 20}
 
 
 def clamp(value, low, high):
@@ -87,7 +88,7 @@ class SpriteArt:
             legacy = ROOT / "assets" / "animations_v3" / f"{prefix}_{name}.png"
             path = independent if independent.exists() else legacy
             strip = pygame.image.load(path).convert_alpha()
-            frame_count = 10
+            frame_count = ANIMATION_FRAME_COUNTS.get((prefix, name), 10)
             cell_w, cell_h = strip.get_width() // frame_count, strip.get_height()
             frames = []
             for column in range(frame_count):
@@ -612,7 +613,9 @@ class Gundyr:
             name, duration = "idle", 1.0
         frames = sprites[name]
         if name in ("idle", "walk"):
-            speed = 9 if name == "walk" else 4
+            # The 20-frame walk runs at double the old sampling rate, keeping
+            # the same cycle duration while showing the new transition poses.
+            speed = 18 if name == "walk" else 4
             frame_index = int(self.timer * speed) % len(frames)
         else:
             frame_index = min(len(frames) - 1, int(self.timer / duration * len(frames)))
