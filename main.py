@@ -377,6 +377,7 @@ class Gundyr:
         self.combo_left = 0
         self.last_attack = ""
         self.flash = self.stagger = self.dead_time = 0.0
+        self.moving = False
 
     def receive(self, damage):
         if self.state in ("intro", "dead"):
@@ -459,6 +460,7 @@ class Gundyr:
 
     def update(self, dt, hero):
         events = []
+        self.moving = False
         self.timer += dt
         self.flash = max(0, self.flash - dt)
         distance = abs(hero.pos.x - self.pos.x)
@@ -496,8 +498,10 @@ class Gundyr:
             self.cooldown -= dt
             if distance > 200:
                 self.pos.x += self.facing * (78 + self.phase * 12) * dt
+                self.moving = True
             elif distance < 105:
                 self.pos.x -= self.facing * 44 * dt
+                self.moving = True
             # At long range Gundyr closes the gap instead of swinging at air.
             if self.cooldown <= 0 and distance <= 300:
                 self.select_attack(distance)
@@ -603,12 +607,13 @@ class Gundyr:
         elif self.state in ("leap", "backstep", "transform"):
             name, duration = "special", 1.6
         elif self.state == "idle":
-            name, duration = "walk", .9
+            name, duration = ("walk" if self.moving else "idle"), .9
         else:
             name, duration = "idle", 1.0
         frames = sprites[name]
         if name in ("idle", "walk"):
-            frame_index = int(self.timer * 6) % len(frames)
+            speed = 9 if name == "walk" else 4
+            frame_index = int(self.timer * speed) % len(frames)
         else:
             frame_index = min(len(frames) - 1, int(self.timer / duration * len(frames)))
         frame = frames[frame_index]
@@ -620,7 +625,9 @@ class Gundyr:
             frame.fill((90, 30, 24, 0), special_flags=pygame.BLEND_RGB_ADD)
         if self.state == "dead":
             frame = pygame.transform.rotate(frame, -70 * self.facing)
-        rect = frame.get_rect(midbottom=(pos.x, pos.y + 2))
+        # The scaled strips retain three transparent pixels below the boots.
+        # Four pixels place the visible soles one pixel into the shadow/ground.
+        rect = frame.get_rect(midbottom=(pos.x, pos.y + 4))
         surface.blit(frame, rect)
         if self.state == "stagger":
             draw_text(surface, pygame.font.SysFont("georgia", 18), "VULNERÁVEL", (pos.x, pos.y - 175), (226, 182, 87), "center")
