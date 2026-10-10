@@ -39,7 +39,7 @@ Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte
 - Cavaleiro: idle, corrida, rolamento, defesa, beber Estus, morte com pose final deitada, dois ataques leves e dois ataques fortes.
 - Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada com 60 quadros a 36 quadros por segundo (ciclo de 1,67 s), duas varreduras, duas estocadas, golpe vertical e movimentos especiais. A caminhada preserva a sequência das passadas ao parar e retomar o movimento.
 
-Na caminhada, os 20 quadros anteriores são preservados sem alterações. O exportador acrescenta duas poses intermediárias por transição, incluindo o retorno do último quadro ao primeiro. A interpolação geométrica acompanha o deslocamento da armadura, pernas e alabarda e mantém uma única silhueta, sem simplesmente sobrepor dois sprites. Pares idênticos continuam sendo uma pausa da passada.
+Na caminhada, uma pose limpa fornece a textura original da armadura. O exportador separa coxas, canelas e botas e cria 20 poses articuladas nas fases de contato, descida, passagem e subida: um pé sustenta o corpo enquanto o outro sai do chão, com o joelho dobrado. A alabarda fica em uma camada rígida separada para não deformar junto da perna. Duas poses intermediárias por transição completam os 60 quadros, incluindo o retorno do último ao primeiro, mantendo o ciclo de 1,67 s e a linha do pé de apoio.
 
 Os atlases-fonte antigos ficam em `assets/hero_v3_atlas.png` e `assets/gundyr_v3_atlas.png`. Para reexportá-los, execute `py prepare_sprites.py`. Para reexportar as animações independentes corrigidas:
 

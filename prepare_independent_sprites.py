@@ -135,45 +135,12 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     frame_scale_multipliers = [1.0] * len(frames)
     walk_key_heights = None
 
-    # The walk source keeps the ten strong key poses. A second sheet contains
-    # one transition pose after each key (including the loop from 10 back to
-    # 1), so interleaving them produces a smoother 20-frame cycle without
-    # weakening the readable foot contacts of the original animation.
+    # Use one clean armor/weapon pose as the calibrated rig's texture source.
+    # The old sheet's grounded poses cannot produce a raised foot merely by
+    # optical-flow interpolation; new bent-knee key poses are baked below.
     if prefix == "gundyr" and animation == "walk":
         walk_key_heights = [metadata[0][0].height, metadata[-1][0].height]
-        key_neutral_height = median(walk_key_heights)
-        inbetween_path = SOURCE_DIR / "boss_walk_inbetweens.png"
-        inbetween_sheet = pygame.image.load(inbetween_path).convert_alpha()
-        inbetween_frames, inbetween_metadata = split_grid(inbetween_sheet)
-        # The fifth generated transition touched the outer sheet edge. Reuse
-        # its matching clean key pose instead of ever exporting a clipped or
-        # duplicated axe head.
-        inbetween_frames[4] = frames[4].copy()
-        inbetween_metadata[4] = metadata[4]
-        inbetween_neutral_height = median(
-            (inbetween_metadata[0][0].height, inbetween_metadata[-1][0].height)
-        )
-        inbetween_scale = key_neutral_height / inbetween_neutral_height
-        inbetween_multipliers = [inbetween_scale] * GRID_COLUMNS * GRID_ROWS
-        inbetween_multipliers[4] = 1.0
-        frames = [
-            frame
-            for pair in zip(frames, inbetween_frames)
-            for frame in pair
-        ]
-        metadata = [
-            frame_metadata
-            for pair in zip(metadata, inbetween_metadata)
-            for frame_metadata in pair
-        ]
-        frame_scale_multipliers = [
-            multiplier
-            for pair in zip(
-                [1.0] * GRID_COLUMNS * GRID_ROWS,
-                inbetween_multipliers,
-            )
-            for multiplier in pair
-        ]
+        frames, metadata, frame_scale_multipliers = frames[:1], metadata[:1], [1.0]
 
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
@@ -219,20 +186,20 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
         )
 
     if stable_body_anchor:
-        left_extent = max(anchor for _, _, anchor in prepared)
-        right_extent = max(frame.get_width() - anchor for frame, _, anchor in prepared)
-        cell_width = left_extent + right_extent + HORIZONTAL_PADDING * 2
-        body_axis = HORIZONTAL_PADDING + left_extent
+        from rig_gundyr_walk import BODY_AXIS, SOURCE_SIZE, build_walk_keyframes
+
+        cell_width, cell_height = SOURCE_SIZE
+        body_axis = BODY_AXIS
     else:
         cell_width = (
             max(frame.get_width() for frame, _, _ in prepared)
             + HORIZONTAL_PADDING * 2
         )
-    cell_height = (
-        max(frame.get_height() + lift for frame, lift, _ in prepared)
-        + TOP_PADDING
-        + BOTTOM_PADDING
-    )
+        cell_height = (
+            max(frame.get_height() + lift for frame, lift, _ in prepared)
+            + TOP_PADDING
+            + BOTTOM_PADDING
+        )
     baseline = cell_height - BOTTOM_PADDING
     cells = []
 
@@ -261,7 +228,7 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     if stable_body_anchor:
         from interpolate_walk import interpolate_walk_cells
 
-        cells = interpolate_walk_cells(cells)
+        cells = interpolate_walk_cells(build_walk_keyframes(cells[0]))
 
     strip = pygame.Surface((cell_width * len(cells), cell_height), pygame.SRCALPHA)
     for index, cell in enumerate(cells):

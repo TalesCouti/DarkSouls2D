@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -16,6 +17,49 @@ import pygame
 
 import main
 from interpolate_walk import WALK_INBETWEENS, interpolate_walk_cells
+from rig_gundyr_walk import (
+    FOOT_CLEARANCE, LEG_RIGS, SHIN_LENGTH, THIGH_LENGTH,
+    foot_pose, knee_joint,
+)
+
+
+class WalkGaitTests(unittest.TestCase):
+    def test_one_foot_always_supports_the_body_and_both_feet_take_turns(self):
+        support_counts = [0, 0]
+        maximum_lift = [0.0, 0.0]
+        for index in range(1000):
+            supports = []
+            for leg_index, rig in enumerate(LEG_RIGS):
+                ankle, angle, supported = foot_pose(
+                    index / 1000 + rig["phase_offset"], rig["front_x"], 111,
+                )
+                supports.append(supported)
+                support_counts[leg_index] += supported
+                maximum_lift[leg_index] = max(maximum_lift[leg_index], 111 - ankle[1])
+                if supported:
+                    self.assertEqual(ankle[1], 111)
+                    self.assertEqual(angle, 0)
+            self.assertTrue(any(supports))
+        self.assertTrue(all(500 <= count <= 560 for count in support_counts))
+        self.assertTrue(all(lift >= FOOT_CLEARANCE - 0.01 for lift in maximum_lift))
+
+    def test_knees_bend_without_changing_limb_lengths(self):
+        for index in range(1000):
+            phase = index / 1000
+            for rig in LEG_RIGS:
+                ankle, _, _ = foot_pose(phase + rig["phase_offset"], rig["front_x"], 111)
+                hip = (rig["target_hip"][0], rig["target_hip"][1] + 1.5 * math.sin(4 * math.pi * phase))
+                knee = knee_joint(hip, ankle)
+                self.assertAlmostEqual(math.dist(hip, knee), THIGH_LENGTH)
+                self.assertAlmostEqual(math.dist(knee, ankle), SHIN_LENGTH)
+                self.assertGreater(knee[0], min(hip[0], ankle[0]))
+
+    def test_foot_trajectory_loops_without_a_position_jump(self):
+        for rig in LEG_RIGS:
+            start, _, _ = foot_pose(0, rig["front_x"], 111)
+            end, angle, _ = foot_pose(1 - 1e-8, rig["front_x"], 111)
+            self.assertLess(math.dist(start, end), 1e-5)
+            self.assertLess(abs(angle), 1e-5)
 
 
 class WalkPlaybackTests(unittest.TestCase):
@@ -49,6 +93,7 @@ class WalkPlaybackTests(unittest.TestCase):
     def test_same_cycle_duration_with_more_frames(self):
         boss = main.Gundyr()
         boss.state, boss.moving, boss.facing = "idle", True, 1
+
         class FrameRecorder(pygame.Surface):
             def blit(self, source, *args, **kwargs):
                 self.last_frame = source
@@ -63,6 +108,33 @@ class WalkPlaybackTests(unittest.TestCase):
             boss.draw(surface, {"walk": self.frames}, pygame.Vector2())
             self.assertIs(surface.last_frame, self.frames[index % 60])
         self.assertAlmostEqual(main.GUNDYR_WALK_CYCLE_DURATION, 1.6666666667)
+
+    def test_baked_passing_poses_lift_a_boot_off_the_floor(self):
+        def floor_contacts(frame):
+            occupied_columns = [
+                x for x in range(15, 115)
+                if any(frame.get_at((x, y)).a > 24 for y in range(117, 120))
+            ]
+            return sum(
+                index == 0 or x > occupied_columns[index - 1] + 1
+                for index, x in enumerate(occupied_columns)
+            )
+
+        # Contact has two boots on the floor. Passing has only the supporting
+        # boot; the opposite knee/boot is visibly raised in the actual PNG.
+        self.assertEqual(floor_contacts(self.frames[0]), 2)
+        self.assertEqual(floor_contacts(self.frames[30]), 2)
+        self.assertEqual(floor_contacts(self.frames[15]), 1)
+        self.assertEqual(floor_contacts(self.frames[45]), 1)
+
+    def test_halberd_blade_stays_identical_at_matching_body_heights(self):
+        blade = pygame.Rect(110, 83, 40, 30)
+        reference = pygame.image.tobytes(self.frames[0].subsurface(blade), "RGBA")
+        for index in (15, 30, 45):
+            self.assertEqual(
+                pygame.image.tobytes(self.frames[index].subsurface(blade), "RGBA"),
+                reference,
+            )
 
     def test_scaled_boots_share_the_same_floor_in_both_directions(self):
         frames = main.SpriteArt._strips("gundyr", ("walk",), 1.55)["walk"]
@@ -132,7 +204,7 @@ class WalkExportTests(unittest.TestCase):
             cls.base = [cell.copy() for cell in cells]
             return cells
 
-        # Reconstruct the 20 clean aligned poses from the existing sources.
+        # Reconstruct the 20 articulated key poses from the clean source armor.
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(exporter, "OUTPUT_DIR", Path(directory)):
                 with patch("interpolate_walk.interpolate_walk_cells", capture):
@@ -144,7 +216,7 @@ class WalkExportTests(unittest.TestCase):
     def tearDownClass(cls):
         pygame.quit()
 
-    def test_original_poses_are_copied_unchanged(self):
+    def test_articulated_key_poses_are_copied_unchanged(self):
         self.assertEqual(len(self.generated), len(self.base) * (WALK_INBETWEENS + 1))
         for before, after in zip(self.base, self.generated[::WALK_INBETWEENS + 1]):
             self.assertEqual(
