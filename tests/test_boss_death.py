@@ -21,7 +21,7 @@ class BossDeathTests(unittest.TestCase):
         surface = pygame.Surface((1280, 720), pygame.SRCALPHA)
         frame = pygame.Surface((120, 180), pygame.SRCALPHA)
         frame.fill((220, 210, 190, 255))
-        sprites = {"idle": [frame] * 10}
+        sprites = {"slam": [frame] * 10}
         boss = Gundyr()
         boss.state = "dead"
 

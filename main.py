@@ -596,7 +596,7 @@ class Gundyr:
         shadow.center = pos.x, GROUND + 9 + offset.y
         pygame.draw.ellipse(surface, (4, 4, 5), shadow)
         if self.state == "dead":
-            name, duration = "idle", 1.0
+            name, duration = "slam", 1.0
         elif self.state == "sweep":
             name, duration = "sweep_a", 1.38
         elif self.state in ("reverse_sweep", "combo", "frenzy"):
@@ -617,7 +617,11 @@ class Gundyr:
             name, duration = "idle", 1.0
         frames = sprites[name]
         if self.state == "dead":
-            frame_index = min(len(frames) - 1, int(self.dead_time * 5))
+            # Skip the weapon-raising frames and move directly from standing
+            # into the low, halberd-braced kneeling poses.
+            death_sequence = (0, 5, 6, 7)
+            kneel = clamp(self.dead_time / .72, 0, 1)
+            frame_index = death_sequence[min(len(death_sequence) - 1, int(kneel * len(death_sequence)))]
         elif name in ("idle", "walk"):
             speed = 9 if name == "walk" else 4
             frame_index = int(self.timer * speed) % len(frames)
@@ -632,15 +636,8 @@ class Gundyr:
             frame.fill((90, 30, 24, 0), special_flags=pygame.BLEND_RGB_ADD)
         death_sink = 0
         if self.state == "dead":
-            fall = clamp(self.dead_time / .9, 0, 1)
-            fall = fall * fall * (3 - 2 * fall)
-            visible_bounds = frame.get_bounding_rect(min_alpha=8)
-            if visible_bounds.width and visible_bounds.height:
-                frame = frame.subsurface(visible_bounds).copy()
-            frame = pygame.transform.rotate(frame, -78 * self.facing * fall)
-            # The halberd makes the rotated frame unusually tall; lowering the
-            # pivot lets Gundyr's body visibly meet the floor during the fall.
-            death_sink = int(48 * fall + max(0, self.dead_time - .72) * 8)
+            kneel = kneel * kneel * (3 - 2 * kneel)
+            death_sink = int(5 * kneel)
             fade = 1 - clamp((self.dead_time - 1.05) / (BOSS_DEATH_DURATION - 1.05), 0, 1)
             frame = frame.copy()
             frame.fill((150, 137, 126, 255), special_flags=pygame.BLEND_RGBA_MULT)
