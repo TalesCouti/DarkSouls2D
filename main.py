@@ -671,6 +671,8 @@ class Game:
         self.font_menu_option = pygame.font.Font(menu_font_path, 27)
         self.menu_play_button = pygame.Rect(WIDTH // 2 - 130, 428, 260, 48)
         self.menu_cheats_button = pygame.Rect(WIDTH // 2 - 130, 482, 260, 48)
+        self.pause_continue_button = pygame.Rect(WIDTH // 2 - 155, 365, 310, 48)
+        self.pause_menu_button = pygame.Rect(WIDTH // 2 - 155, 423, 310, 48)
         self.cheat_arrow_rects = {
             "health_down": pygame.Rect(WIDTH // 2 - 100, 343, 48, 42),
             "health_up": pygame.Rect(WIDTH // 2 + 96, 343, 48, 42),
@@ -697,6 +699,7 @@ class Game:
         self.menu = True
         self.menu_page = "main"
         self.menu_selection = 0
+        self.pause_selection = 0
         self.cheat_selection = 0
         self.cheat_health_index = self.CHEAT_HEALTH_OPTIONS.index(110)
         self.cheat_damage_index = self.CHEAT_DAMAGE_OPTIONS.index(1.0)
@@ -820,6 +823,22 @@ class Game:
         self.cheat_health_index = self.CHEAT_HEALTH_OPTIONS.index(110)
         self.cheat_damage_index = self.CHEAT_DAMAGE_OPTIONS.index(1.0)
 
+    def return_to_main_menu(self):
+        if self.music_ready:
+            pygame.mixer.music.fadeout(600)
+            self.music_ready = False
+        self.menu = True
+        self.menu_page = "main"
+        self.menu_selection = 0
+        self.paused = False
+        self.restart()
+
+    def activate_pause_selection(self):
+        if self.pause_selection == 0:
+            self.paused = False
+        else:
+            self.return_to_main_menu()
+
     def handle_events(self):
         jump = False
         for event in pygame.event.get():
@@ -848,8 +867,19 @@ class Game:
                         elif event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
                             self.menu_page = "main"
                     continue
+                if self.paused:
+                    if event.key == pygame.K_ESCAPE:
+                        self.paused = False
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        self.pause_selection = (self.pause_selection - 1) % 2
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        self.pause_selection = (self.pause_selection + 1) % 2
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                        self.activate_pause_selection()
+                    continue
                 if event.key == pygame.K_ESCAPE:
-                    self.paused = not self.paused
+                    self.paused = True
+                    self.pause_selection = 0
                 elif event.key == pygame.K_F3:
                     self.show_hitboxes = not self.show_hitboxes
                 elif event.key == pygame.K_h:
@@ -888,6 +918,14 @@ class Game:
                         self.adjust_cheat(1)
                     elif self.cheat_back_button.collidepoint(event.pos):
                         self.menu_page = "main"
+                continue
+            if event.type == pygame.MOUSEBUTTONDOWN and self.paused:
+                if event.button == 1 and self.pause_continue_button.collidepoint(event.pos):
+                    self.pause_selection = 0
+                    self.activate_pause_selection()
+                elif event.button == 1 and self.pause_menu_button.collidepoint(event.pos):
+                    self.pause_selection = 1
+                    self.activate_pause_selection()
                 continue
             if event.type == pygame.MOUSEBUTTONDOWN and not self.paused and self.hero.hp and self.boss.hp:
                 if event.button == 1:
@@ -1116,6 +1154,30 @@ class Game:
         draw_text(self.screen, self.font_large, title, (WIDTH // 2, HEIGHT // 2 - 18), color, "center")
         draw_text(self.screen, self.font_ui, subtitle, (WIDTH // 2, HEIGHT // 2 + 51), (193, 181, 168), "center")
 
+    def draw_pause_menu(self):
+        veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        veil.fill((1, 1, 3, 218))
+        self.screen.blit(veil, (0, 0))
+        draw_text(
+            self.screen,
+            self.font_menu_heading,
+            "PAUSADO",
+            (WIDTH // 2, 276),
+            (218, 216, 207),
+            "center",
+        )
+        pygame.draw.line(self.screen, (87, 76, 62), (390, 325), (WIDTH - 390, 325), 1)
+        self.draw_menu_option(self.pause_continue_button, "CONTINUAR", self.pause_selection == 0)
+        self.draw_menu_option(self.pause_menu_button, "VOLTAR AO MENU", self.pause_selection == 1)
+        draw_text(
+            self.screen,
+            self.font_small,
+            "SETAS ou W/S para escolher   •   ENTER para confirmar",
+            (WIDTH // 2, 520),
+            (113, 108, 101),
+            "center",
+        )
+
     def draw_death_screen(self):
         fade = clamp((self.end_timer - .12) / 1.35, 0, 1)
         fade = fade * fade * (3 - 2 * fade)
@@ -1216,7 +1278,7 @@ class Game:
             draw_text(self.screen, self.font_small, "ESQ atacar  •  DIR golpe forte  •  Q aparar  •  E curar", (WIDTH // 2, 99), (192, 184, 174), "midtop")
             draw_text(self.screen, self.font_small, "Costas ignoram o escudo  •  F3 hitboxes  •  H oculta ajuda", (WIDTH // 2, 127), (164, 154, 143), "midtop")
         if self.paused:
-            self.overlay("PAUSADO", "ESC para continuar", (214, 203, 186))
+            self.draw_pause_menu()
         elif not self.hero.hp:
             self.draw_death_screen()
         elif not self.boss.hp and self.end_timer > VICTORY_MESSAGE_DELAY:

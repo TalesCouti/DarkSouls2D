@@ -40,8 +40,11 @@ pyinstaller --noconfirm --clean --windowed --name AshenTrial --add-data "assets;
 | Beber Estus | `E` |
 | Mostrar ou ocultar ajuda | `H` |
 | Mostrar ou ocultar hitboxes | `F3` |
-| Pausar | `Esc` |
+| Pausar / abrir menu de pausa | `Esc` |
 | Reiniciar após o fim | `R` |
+
+No menu de pausa, use as setas ou `W/S` para escolher entre continuar e voltar
+ao menu principal; confirme com `Enter` ou clique na opção desejada.
 
 O jogador tem vida, stamina, combo, ataque forte, cura, pulo, rolamento com invencibilidade, defesa direcional e aparo. Ao pressionar `E`, ele saca e bebe o Estus; comandos do jogador não cancelam a animação, mas um ataque inimigo pode interrompê-la. A cura só é aplicada no momento do gole. Segurar `F` bloqueia golpes que chegam pela frente e consome stamina; ataques pelas costas ignoram o escudo. O chefe possui golpes com preparação e recuperação mais longas, recuos, investida, salto, combos, variações de tempo, golpes de área e uma segunda fase mais agressiva.
 
