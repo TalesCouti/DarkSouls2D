@@ -643,6 +643,22 @@ class Game:
         self.font_ui = pygame.font.SysFont("georgia", 23)
         self.font_large = pygame.font.SysFont("georgia", 62)
         self.font_death = pygame.font.SysFont("georgia", 82)
+        menu_font_path = pygame.font.match_font(("garamond", "perpetua", "georgia", "timesnewroman"))
+        self.font_menu_title = pygame.font.Font(menu_font_path, 106)
+        self.font_menu_title.set_bold(True)
+        self.font_menu_option = pygame.font.Font(menu_font_path, 27)
+        self.menu_button = pygame.Rect(WIDTH // 2 - 130, 454, 260, 56)
+        self.menu_title = self.font_menu_title.render("DARK SOULS 2D", True, (224, 223, 216)).convert_alpha()
+        # Break the otherwise pristine system font into a restrained, worn logo.
+        weathering = random.Random(2016)
+        for _ in range(54):
+            scratch = pygame.Rect(
+                weathering.randrange(self.menu_title.get_width()),
+                weathering.randrange(self.menu_title.get_height()),
+                weathering.randrange(2, 10),
+                weathering.choice((1, 1, 2)),
+            )
+            self.menu_title.fill((70, 70, 70, 255), scratch, special_flags=pygame.BLEND_RGBA_MULT)
         self.art = SpriteArt()
         self.background = self.build_background()
         self.death_vignette = self.build_death_vignette()
@@ -770,7 +786,7 @@ class Game:
                     elif event.key == pygame.K_e:
                         self.hero.heal()
             if event.type == pygame.MOUSEBUTTONDOWN and self.menu:
-                if event.button == 1 and pygame.Rect(WIDTH // 2 - 125, 365, 250, 58).collidepoint(event.pos):
+                if event.button == 1 and self.menu_button.collidepoint(event.pos):
                     self.menu = False
                     self.restart()
                 continue
@@ -878,21 +894,41 @@ class Game:
             draw_text(self.screen, self.font_small, f"FASE {self.boss.phase}", (rect.right, rect.top - 29), (161, 149, 136), "topright")
 
     def draw_main_menu(self):
-        veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        veil.fill((0, 0, 2, 218))
-        self.screen.blit(veil, (0, 0))
-        draw_text(self.screen, self.font_death, "DARK SOULS 2D", (WIDTH // 2, 245), (226, 223, 211), "center")
-        rule = pygame.Surface((720, 2), pygame.SRCALPHA)
-        pygame.draw.line(rule, (145, 119, 77, 175), (0, 1), (720, 1))
-        self.screen.blit(rule, (WIDTH // 2 - 360, 303))
-        button = pygame.Rect(WIDTH // 2 - 125, 365, 250, 58)
-        hovered = button.collidepoint(pygame.mouse.get_pos())
-        glow = pygame.Surface((button.width, button.height), pygame.SRCALPHA)
-        glow.fill((108, 76, 31, 45 if hovered else 28))
-        self.screen.blit(glow, button.topleft)
-        draw_text(self.screen, self.font_ui, "JOGAR", button.center, (240, 201, 119) if hovered else (213, 174, 91), "center")
-        draw_text(self.screen, self.font_small, "ENTER   ou clique para iniciar", (WIDTH // 2, 434), (152, 145, 135), "center")
-        draw_text(self.screen, self.font_small, "Uma peregrinação ao pátio de Gundyr", (WIDTH // 2, 650), (110, 105, 101), "center")
+        self.screen.fill((1, 1, 2))
+
+        # A nearly black field with a faint warm center keeps the logo readable
+        # while retaining the austere Dark Souls menu composition.
+        haze = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        for radius, alpha in ((430, 5), (310, 7), (205, 9)):
+            pygame.draw.ellipse(
+                haze,
+                (90, 65, 34, alpha),
+                (WIDTH // 2 - radius, 115, radius * 2, radius),
+            )
+        self.screen.blit(haze, (0, 0))
+
+        pygame.draw.line(self.screen, (73, 68, 61), (48, 318), (WIDTH - 48, 318), 1)
+        title_rect = self.menu_title.get_rect(center=(WIDTH // 2, 302))
+        title_shadow = self.font_menu_title.render("DARK SOULS 2D", True, (0, 0, 0))
+        self.screen.blit(title_shadow, title_shadow.get_rect(center=(WIDTH // 2 + 3, 306)))
+        self.screen.blit(self.menu_title, title_rect)
+
+        hovered = self.menu_button.collidepoint(pygame.mouse.get_pos())
+        glow = pygame.Surface((self.menu_button.width + 120, self.menu_button.height), pygame.SRCALPHA)
+        pygame.draw.ellipse(
+            glow,
+            (135, 91, 24, 34 if hovered else 18),
+            glow.get_rect(),
+        )
+        self.screen.blit(glow, glow.get_rect(center=self.menu_button.center))
+        draw_text(
+            self.screen,
+            self.font_menu_option,
+            "JOGAR",
+            self.menu_button.center,
+            (224, 192, 125) if hovered else (185, 171, 146),
+            "center",
+        )
 
     def overlay(self, title, subtitle, color):
         veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
