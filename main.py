@@ -648,7 +648,23 @@ class Game:
         self.death_vignette = self.build_death_vignette()
         self.capture = capture
         self.show_hitboxes = True
+        self.menu = True
+        self.music_ready = False
+        self.start_music()
         self.restart()
+
+    def start_music(self):
+        """Start the boss theme when an audio device and OST file are available."""
+        track = ROOT / "ost" / "gundyr_boss.ogg"
+        try:
+            if track.exists():
+                pygame.mixer.music.load(track)
+                pygame.mixer.music.set_volume(.42)
+                pygame.mixer.music.play(-1, fade_ms=1200)
+                self.music_ready = True
+        except pygame.error:
+            # Headless preview/tests and machines without an audio device still run.
+            self.music_ready = False
 
     def restart(self):
         self.hero, self.boss = Hero(), Gundyr()
@@ -728,6 +744,13 @@ class Game:
             if event.type == pygame.QUIT:
                 return False, jump
             if event.type == pygame.KEYDOWN:
+                if self.menu:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_e):
+                        self.menu = False
+                        self.restart()
+                    elif event.key == pygame.K_ESCAPE:
+                        return False, jump
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     self.paused = not self.paused
                 elif event.key == pygame.K_F3:
@@ -753,7 +776,7 @@ class Game:
         return True, jump
 
     def update(self, dt, jump):
-        if self.paused:
+        if self.menu or self.paused:
             return
         self.help_time = max(0, self.help_time - dt)
         if self.freeze > 0:
@@ -810,38 +833,52 @@ class Game:
             self.end_timer += dt
 
     def draw_bar(self, rect, ratio, color):
-        pygame.draw.rect(self.screen, (5, 5, 7), rect.inflate(8, 8))
-        pygame.draw.rect(self.screen, (48, 43, 44), rect)
+        pygame.draw.rect(self.screen, (3, 3, 5), rect.inflate(10, 8))
+        pygame.draw.rect(self.screen, (27, 24, 27), rect)
         filled = rect.copy()
         filled.width = int(rect.width * clamp(ratio, 0, 1))
         if filled.width:
             pygame.draw.rect(self.screen, color, filled)
             pygame.draw.line(self.screen, tuple(min(255, c + 35) for c in color), filled.topleft, filled.topright, 2)
-        pygame.draw.rect(self.screen, (116, 101, 89), rect, 1)
+        pygame.draw.rect(self.screen, (105, 91, 79), rect, 1)
 
     def draw_hud(self):
-        panel = pygame.Surface((390, 118), pygame.SRCALPHA)
-        panel.fill((4, 4, 6, 180))
-        self.screen.blit(panel, (20, 17))
-        pygame.draw.circle(self.screen, (25, 22, 27), (65, 65), 37)
-        pygame.draw.circle(self.screen, (148, 122, 76), (65, 65), 37, 3)
-        pygame.draw.polygon(self.screen, (178, 37, 39), [(65, 39), (76, 64), (65, 93), (54, 64)])
-        self.draw_bar(pygame.Rect(116, 37, 270, 19), self.hero.hp / self.hero.max_hp, (150, 31, 39))
-        self.draw_bar(pygame.Rect(116, 69, 238, 13), self.hero.stamina / self.hero.max_stamina, (46, 128, 68))
-        icon_rect = self.art.estus_icon.get_rect(midleft=(113, 111))
+        panel = pygame.Surface((430, 126), pygame.SRCALPHA)
+        panel.fill((3, 3, 5, 198))
+        self.screen.blit(panel, (18, 15))
+        pygame.draw.circle(self.screen, (16, 15, 18), (62, 61), 39)
+        pygame.draw.circle(self.screen, (151, 124, 73), (62, 61), 39, 3)
+        pygame.draw.circle(self.screen, (83, 22, 27), (62, 61), 29)
+        pygame.draw.polygon(self.screen, (185, 39, 43), [(62, 36), (74, 61), (62, 86), (50, 61)])
+        self.draw_bar(pygame.Rect(112, 33, 310, 20), self.hero.hp / self.hero.max_hp, (154, 32, 39))
+        self.draw_bar(pygame.Rect(112, 64, 272, 12), self.hero.stamina / self.hero.max_stamina, (57, 132, 74))
+        pygame.draw.line(self.screen, (205, 180, 115), (112, 56), (422, 56), 1)
+        icon_rect = self.art.estus_icon.get_rect(midleft=(112, 106))
         self.screen.blit(self.art.estus_icon, icon_rect)
         draw_text(
             self.screen,
             self.font_small,
             f"ESTUS   × {self.hero.flasks}",
-            (160, 99),
+            (157, 96),
             (222, 174, 80),
         )
         if self.boss.state != "intro" or self.boss.timer > .45:
-            rect = pygame.Rect(205, HEIGHT - 66, WIDTH - 410, 18)
+            rect = pygame.Rect(205, HEIGHT - 69, WIDTH - 410, 18)
             self.draw_bar(rect, self.boss.hp / self.boss.max_hp, (128, 25, 33))
-            draw_text(self.screen, self.font_ui, "IUDEX GUNDYR", (rect.left, rect.top - 34))
-            draw_text(self.screen, self.font_small, f"FASE {self.boss.phase}", (rect.right, rect.top - 28), (161, 149, 136), "topright")
+            draw_text(self.screen, self.font_ui, "IUDEX GUNDYR", (rect.left, rect.top - 35), (207, 194, 170))
+            draw_text(self.screen, self.font_small, f"FASE {self.boss.phase}", (rect.right, rect.top - 29), (161, 149, 136), "topright")
+
+    def draw_main_menu(self):
+        veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        veil.fill((0, 0, 2, 218))
+        self.screen.blit(veil, (0, 0))
+        draw_text(self.screen, self.font_death, "DARK SOULS 2D", (WIDTH // 2, 245), (226, 223, 211), "center")
+        rule = pygame.Surface((720, 2), pygame.SRCALPHA)
+        pygame.draw.line(rule, (145, 119, 77, 175), (0, 1), (720, 1))
+        self.screen.blit(rule, (WIDTH // 2 - 360, 303))
+        draw_text(self.screen, self.font_ui, "JOGAR", (WIDTH // 2, 390), (213, 174, 91), "center")
+        draw_text(self.screen, self.font_small, "ENTER   iniciar duelo", (WIDTH // 2, 434), (152, 145, 135), "center")
+        draw_text(self.screen, self.font_small, "Uma peregrinação ao pátio de Gundyr", (WIDTH // 2, 650), (110, 105, 101), "center")
 
     def overlay(self, title, subtitle, color):
         veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -927,6 +964,10 @@ class Game:
         if self.shake:
             offset.xy = random.uniform(-self.shake, self.shake), random.uniform(-self.shake, self.shake)
         self.screen.blit(self.background, offset)
+        if self.menu:
+            self.draw_main_menu()
+            pygame.display.flip()
+            return
         for center, radius, life in self.waves:
             pygame.draw.ellipse(self.screen, (145, 43, 39), (center.x - radius + offset.x, GROUND - radius * .14 + offset.y, radius * 2, radius * .28), 4)
         for _, actor in sorted(((self.hero.pos.x, self.hero), (self.boss.pos.x, self.boss)), key=lambda item: item[0]):

@@ -11,6 +11,10 @@ py -m pip install -r requirements.txt
 py main.py
 ```
 
+Ao abrir, o jogo apresenta o menu principal. Pressione `Enter` para escolher
+`JOGAR`. A trilha de Gundyr fica em `ost/gundyr_boss.ogg` e é reproduzida em
+loop durante o menu e o duelo.
+
 ## Controles
 
 | Ação | Controle |
