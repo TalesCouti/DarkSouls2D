@@ -95,13 +95,32 @@ def grid_boundaries(sheet: pygame.Surface):
     return x_boundaries, [0, y_separator, height]
 
 
-def split_grid(sheet: pygame.Surface):
+def split_grid(sheet: pygame.Surface, *, separate_rows: bool = False):
     x_boundaries, y_boundaries = grid_boundaries(sheet)
+    row_boundaries = []
+    if separate_rows:
+        occupied = pygame.surfarray.array_alpha(sheet) > ALPHA_THRESHOLD
+        width = sheet.get_width()
+        for top, bottom in zip(y_boundaries, y_boundaries[1:]):
+            row_ink = occupied[:, top:bottom].sum(axis=1)
+            cuts = [0]
+            for column in range(1, GRID_COLUMNS):
+                nominal = width * column // GRID_COLUMNS
+                cut = closest_clear_separator(row_ink, nominal, width // 8)
+                if row_ink[cut]:
+                    raise RuntimeError(
+                        f"row {len(row_boundaries) + 1}, column {column}: "
+                        "no transparent gap between poses"
+                    )
+                cuts.append(cut)
+            cuts.append(width)
+            row_boundaries.append(cuts)
     frames = []
     metadata = []
     for row in range(GRID_ROWS):
+        boundaries = row_boundaries[row] if separate_rows else x_boundaries
         for column in range(GRID_COLUMNS):
-            left, right = x_boundaries[column], x_boundaries[column + 1]
+            left, right = boundaries[column], boundaries[column + 1]
             top, bottom = y_boundaries[row], y_boundaries[row + 1]
             frame = sheet.subsurface((left, top, right - left, bottom - top)).copy()
             bbox = opaque_bbox(frame)
@@ -116,7 +135,11 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
     source_prefix = "boss" if prefix == "gundyr" else prefix
     source_path = SOURCE_DIR / f"{source_prefix}_{animation}.png"
     sheet = pygame.image.load(source_path).convert_alpha()
-    frames, metadata = split_grid(sheet)
+    # The lower-row thrusts in heavy_b extend across the upper row's cuts.
+    # Find independent transparent gaps so each blade remains with its owner.
+    frames, metadata = split_grid(
+        sheet, separate_rows=prefix == "hero" and animation == "heavy_b"
+    )
 
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
