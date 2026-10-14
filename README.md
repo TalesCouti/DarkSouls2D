@@ -16,6 +16,10 @@ Ao abrir, o jogo apresenta o menu principal. Pressione `Enter` para escolher
 em loop a partir de `ost/Iudex Gundyr (Vorbis).ogg`. Essa cópia foi convertida
 para Ogg Vorbis porque o arquivo original em Opus não abre no Pygame.
 
+A opção `CHEATS` permite ajustar a vida e o multiplicador de dano do jogador
+para testes. Use as setas ou `W/A/S/D` para navegar e alterar os valores, `R`
+para restaurar o padrão e `Esc` para voltar ao menu principal.
+
 Ao gerar o executável, inclua a música junto dos sprites:
 
 ```powershell

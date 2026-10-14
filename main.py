@@ -117,11 +117,12 @@ class Particle:
 
 
 class Hero:
-    def __init__(self):
+    def __init__(self, max_hp=110.0, damage_multiplier=1.0):
         self.pos = pygame.Vector2(300, GROUND)
         self.velocity = pygame.Vector2()
         self.facing = 1
-        self.hp = self.max_hp = 110.0
+        self.hp = self.max_hp = float(max_hp)
+        self.damage_multiplier = float(damage_multiplier)
         self.stamina = self.max_stamina = 100.0
         self.flasks = 3
         self.state, self.timer = "idle", 0.0
@@ -286,7 +287,7 @@ class Hero:
                 82,
             )
             hitbox.normalize()
-            return hitbox, damage
+            return hitbox, damage * self.damage_multiplier
         if self.state == "heavy" and .5 <= self.timer <= .72:
             reach = 127 if self.attack_variant == "heavy_a" else 148
             damage = 31 if self.attack_variant == "heavy_a" else 28
@@ -297,7 +298,7 @@ class Hero:
                 100,
             )
             hitbox.normalize()
-            return hitbox, damage
+            return hitbox, damage * self.damage_multiplier
         return None, 0
 
     def hurt_box(self):
@@ -634,6 +635,9 @@ class Gundyr:
 
 
 class Game:
+    CHEAT_HEALTH_OPTIONS = (50, 110, 250, 500, 1000, 9999)
+    CHEAT_DAMAGE_OPTIONS = (.5, 1.0, 2.0, 5.0, 10.0, 50.0)
+
     def __init__(self, capture=False):
         pygame.init()
         pygame.display.set_caption("Dark Souls 2D")
@@ -646,8 +650,18 @@ class Game:
         menu_font_path = pygame.font.match_font(("garamond", "perpetua", "georgia", "timesnewroman"))
         self.font_menu_title = pygame.font.Font(menu_font_path, 106)
         self.font_menu_title.set_bold(True)
+        self.font_menu_heading = pygame.font.Font(menu_font_path, 48)
+        self.font_menu_heading.set_bold(True)
         self.font_menu_option = pygame.font.Font(menu_font_path, 27)
-        self.menu_button = pygame.Rect(WIDTH // 2 - 130, 454, 260, 56)
+        self.menu_play_button = pygame.Rect(WIDTH // 2 - 130, 428, 260, 48)
+        self.menu_cheats_button = pygame.Rect(WIDTH // 2 - 130, 482, 260, 48)
+        self.cheat_arrow_rects = {
+            "health_down": pygame.Rect(WIDTH // 2 - 100, 343, 48, 42),
+            "health_up": pygame.Rect(WIDTH // 2 + 96, 343, 48, 42),
+            "damage_down": pygame.Rect(WIDTH // 2 - 100, 413, 48, 42),
+            "damage_up": pygame.Rect(WIDTH // 2 + 96, 413, 48, 42),
+        }
+        self.cheat_back_button = pygame.Rect(WIDTH // 2 - 110, 505, 220, 46)
         self.menu_title = self.font_menu_title.render("DARK SOULS 2D", True, (224, 223, 216)).convert_alpha()
         # Break the otherwise pristine system font into a restrained, worn logo.
         weathering = random.Random(2016)
@@ -665,6 +679,11 @@ class Game:
         self.capture = capture
         self.show_hitboxes = True
         self.menu = True
+        self.menu_page = "main"
+        self.menu_selection = 0
+        self.cheat_selection = 0
+        self.cheat_health_index = self.CHEAT_HEALTH_OPTIONS.index(110)
+        self.cheat_damage_index = self.CHEAT_DAMAGE_OPTIONS.index(1.0)
         self.music_ready = False
         self.restart()
 
@@ -682,7 +701,11 @@ class Game:
             self.music_ready = False
 
     def restart(self):
-        self.hero, self.boss = Hero(), Gundyr()
+        self.hero = Hero(
+            self.CHEAT_HEALTH_OPTIONS[self.cheat_health_index],
+            self.CHEAT_DAMAGE_OPTIONS[self.cheat_damage_index],
+        )
+        self.boss = Gundyr()
         self.particles, self.waves = [], []
         self.shake = self.freeze = self.end_timer = 0.0
         self.help_time, self.paused = 8.0, False
@@ -755,6 +778,32 @@ class Game:
             velocity = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1.2, -.1)).normalize() * random.uniform(speed * .3, speed)
             self.particles.append(Particle(pos.copy(), velocity, color, random.uniform(.25, .65), random.uniform(2, 6), 520))
 
+    def activate_menu_selection(self):
+        if self.menu_selection == 0:
+            self.menu = False
+            self.restart()
+        else:
+            self.menu_page = "cheats"
+            self.cheat_selection = 0
+
+    def adjust_cheat(self, direction):
+        if self.cheat_selection == 0:
+            self.cheat_health_index = int(clamp(
+                self.cheat_health_index + direction,
+                0,
+                len(self.CHEAT_HEALTH_OPTIONS) - 1,
+            ))
+        else:
+            self.cheat_damage_index = int(clamp(
+                self.cheat_damage_index + direction,
+                0,
+                len(self.CHEAT_DAMAGE_OPTIONS) - 1,
+            ))
+
+    def reset_cheats(self):
+        self.cheat_health_index = self.CHEAT_HEALTH_OPTIONS.index(110)
+        self.cheat_damage_index = self.CHEAT_DAMAGE_OPTIONS.index(1.0)
+
     def handle_events(self):
         jump = False
         for event in pygame.event.get():
@@ -762,11 +811,26 @@ class Game:
                 return False, jump
             if event.type == pygame.KEYDOWN:
                 if self.menu:
-                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                        self.menu = False
-                        self.restart()
-                    elif event.key == pygame.K_ESCAPE:
-                        return False, jump
+                    if self.menu_page == "main":
+                        if event.key in (pygame.K_UP, pygame.K_w):
+                            self.menu_selection = (self.menu_selection - 1) % 2
+                        elif event.key in (pygame.K_DOWN, pygame.K_s):
+                            self.menu_selection = (self.menu_selection + 1) % 2
+                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                            self.activate_menu_selection()
+                        elif event.key == pygame.K_ESCAPE:
+                            return False, jump
+                    else:
+                        if event.key in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
+                            self.cheat_selection = 1 - self.cheat_selection
+                        elif event.key in (pygame.K_LEFT, pygame.K_a):
+                            self.adjust_cheat(-1)
+                        elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_RETURN, pygame.K_KP_ENTER):
+                            self.adjust_cheat(1)
+                        elif event.key == pygame.K_r:
+                            self.reset_cheats()
+                        elif event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+                            self.menu_page = "main"
                     continue
                 if event.key == pygame.K_ESCAPE:
                     self.paused = not self.paused
@@ -786,9 +850,28 @@ class Game:
                     elif event.key == pygame.K_e:
                         self.hero.heal()
             if event.type == pygame.MOUSEBUTTONDOWN and self.menu:
-                if event.button == 1 and self.menu_button.collidepoint(event.pos):
-                    self.menu = False
-                    self.restart()
+                if event.button == 1 and self.menu_page == "main":
+                    if self.menu_play_button.collidepoint(event.pos):
+                        self.menu_selection = 0
+                        self.activate_menu_selection()
+                    elif self.menu_cheats_button.collidepoint(event.pos):
+                        self.menu_selection = 1
+                        self.activate_menu_selection()
+                elif event.button == 1:
+                    if self.cheat_arrow_rects["health_down"].collidepoint(event.pos):
+                        self.cheat_selection = 0
+                        self.adjust_cheat(-1)
+                    elif self.cheat_arrow_rects["health_up"].collidepoint(event.pos):
+                        self.cheat_selection = 0
+                        self.adjust_cheat(1)
+                    elif self.cheat_arrow_rects["damage_down"].collidepoint(event.pos):
+                        self.cheat_selection = 1
+                        self.adjust_cheat(-1)
+                    elif self.cheat_arrow_rects["damage_up"].collidepoint(event.pos):
+                        self.cheat_selection = 1
+                        self.adjust_cheat(1)
+                    elif self.cheat_back_button.collidepoint(event.pos):
+                        self.menu_page = "main"
                 continue
             if event.type == pygame.MOUSEBUTTONDOWN and not self.paused and self.hero.hp and self.boss.hp:
                 if event.button == 1:
@@ -907,26 +990,93 @@ class Game:
             )
         self.screen.blit(haze, (0, 0))
 
+        if self.menu_page == "cheats":
+            self.draw_cheat_menu()
+            return
+
         pygame.draw.line(self.screen, (73, 68, 61), (48, 318), (WIDTH - 48, 318), 1)
         title_rect = self.menu_title.get_rect(center=(WIDTH // 2, 302))
         title_shadow = self.font_menu_title.render("DARK SOULS 2D", True, (0, 0, 0))
         self.screen.blit(title_shadow, title_shadow.get_rect(center=(WIDTH // 2 + 3, 306)))
         self.screen.blit(self.menu_title, title_rect)
 
-        hovered = self.menu_button.collidepoint(pygame.mouse.get_pos())
-        glow = pygame.Surface((self.menu_button.width + 120, self.menu_button.height), pygame.SRCALPHA)
+        self.draw_menu_option(self.menu_play_button, "JOGAR", self.menu_selection == 0)
+        self.draw_menu_option(self.menu_cheats_button, "CHEATS", self.menu_selection == 1)
+
+    def draw_menu_option(self, rect, label, selected):
+        highlighted = selected or rect.collidepoint(pygame.mouse.get_pos())
+        glow = pygame.Surface((rect.width + 120, rect.height), pygame.SRCALPHA)
         pygame.draw.ellipse(
             glow,
-            (135, 91, 24, 34 if hovered else 18),
+            (135, 91, 24, 34 if highlighted else 10),
             glow.get_rect(),
         )
-        self.screen.blit(glow, glow.get_rect(center=self.menu_button.center))
+        self.screen.blit(glow, glow.get_rect(center=rect.center))
         draw_text(
             self.screen,
             self.font_menu_option,
-            "JOGAR",
-            self.menu_button.center,
-            (224, 192, 125) if hovered else (185, 171, 146),
+            label,
+            rect.center,
+            (224, 192, 125) if highlighted else (151, 144, 132),
+            "center",
+        )
+
+    def draw_cheat_menu(self):
+        draw_text(
+            self.screen,
+            self.font_menu_heading,
+            "CHEATS DE TESTE",
+            (WIDTH // 2, 220),
+            (218, 216, 207),
+            "center",
+        )
+        pygame.draw.line(self.screen, (73, 68, 61), (340, 272), (WIDTH - 340, 272), 1)
+
+        mouse_pos = pygame.mouse.get_pos()
+        rows = (
+            ("VIDA DO JOGADOR", str(self.CHEAT_HEALTH_OPTIONS[self.cheat_health_index]), 364),
+            ("DANO DO JOGADOR", f"{self.CHEAT_DAMAGE_OPTIONS[self.cheat_damage_index]:g}×", 434),
+        )
+        for index, (label, value, y) in enumerate(rows):
+            selected = self.cheat_selection == index
+            if selected:
+                row_glow = pygame.Surface((520, 48), pygame.SRCALPHA)
+                pygame.draw.ellipse(row_glow, (121, 82, 27, 22), row_glow.get_rect())
+                self.screen.blit(row_glow, row_glow.get_rect(center=(WIDTH // 2, y)))
+            draw_text(
+                self.screen,
+                self.font_small,
+                label,
+                (WIDTH // 2 - 125, y),
+                (202, 190, 169) if selected else (139, 134, 126),
+                "midright",
+            )
+            draw_text(
+                self.screen,
+                self.font_menu_option,
+                value,
+                (WIDTH // 2 + 22, y),
+                (225, 193, 126) if selected else (184, 171, 147),
+                "center",
+            )
+
+        arrow_pairs = (
+            (self.cheat_arrow_rects["health_down"], "‹"),
+            (self.cheat_arrow_rects["health_up"], "›"),
+            (self.cheat_arrow_rects["damage_down"], "‹"),
+            (self.cheat_arrow_rects["damage_up"], "›"),
+        )
+        for rect, symbol in arrow_pairs:
+            color = (226, 194, 128) if rect.collidepoint(mouse_pos) else (153, 145, 132)
+            draw_text(self.screen, self.font_menu_option, symbol, rect.center, color, "center")
+
+        self.draw_menu_option(self.cheat_back_button, "VOLTAR", False)
+        draw_text(
+            self.screen,
+            self.font_small,
+            "SETAS ou W/A/S/D para ajustar   •   R restaura o padrão",
+            (WIDTH // 2, 590),
+            (105, 101, 95),
             "center",
         )
 
