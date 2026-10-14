@@ -1,4 +1,4 @@
-"""Ashen Penitent - a side-scrolling pixel-art boss duel made with Pygame."""
+"""Ashen Trial - a Dark Souls-inspired pixel-art boss duel made with Pygame."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ LEFT_WALL, RIGHT_WALL = 72, WIDTH - 72
 HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
+BOSS_DEATH_DURATION = 2.8
+VICTORY_MESSAGE_DELAY = 2.55
 ROOT = Path(__file__).parent
 
 
@@ -574,7 +576,7 @@ class Gundyr:
         return events
 
     def draw(self, surface, sprites, offset):
-        if self.state == "dead" and self.dead_time > 2.3:
+        if self.state == "dead" and self.dead_time > BOSS_DEATH_DURATION:
             return
         telegraph = {
             "sweep": .72, "reverse_sweep": .86,
@@ -593,7 +595,9 @@ class Gundyr:
         shadow = pygame.Rect(0, 0, 124, 16)
         shadow.center = pos.x, GROUND + 9 + offset.y
         pygame.draw.ellipse(surface, (4, 4, 5), shadow)
-        if self.state == "sweep":
+        if self.state == "dead":
+            name, duration = "idle", 1.0
+        elif self.state == "sweep":
             name, duration = "sweep_a", 1.38
         elif self.state in ("reverse_sweep", "combo", "frenzy"):
             name = "sweep_b"
@@ -612,7 +616,9 @@ class Gundyr:
         else:
             name, duration = "idle", 1.0
         frames = sprites[name]
-        if name in ("idle", "walk"):
+        if self.state == "dead":
+            frame_index = min(len(frames) - 1, int(self.dead_time * 5))
+        elif name in ("idle", "walk"):
             speed = 9 if name == "walk" else 4
             frame_index = int(self.timer * speed) % len(frames)
         else:
@@ -624,11 +630,24 @@ class Gundyr:
         if self.flash:
             frame = frame.copy()
             frame.fill((90, 30, 24, 0), special_flags=pygame.BLEND_RGB_ADD)
+        death_sink = 0
         if self.state == "dead":
-            frame = pygame.transform.rotate(frame, -70 * self.facing)
+            fall = clamp(self.dead_time / .9, 0, 1)
+            fall = fall * fall * (3 - 2 * fall)
+            visible_bounds = frame.get_bounding_rect(min_alpha=8)
+            if visible_bounds.width and visible_bounds.height:
+                frame = frame.subsurface(visible_bounds).copy()
+            frame = pygame.transform.rotate(frame, -78 * self.facing * fall)
+            # The halberd makes the rotated frame unusually tall; lowering the
+            # pivot lets Gundyr's body visibly meet the floor during the fall.
+            death_sink = int(48 * fall + max(0, self.dead_time - .72) * 8)
+            fade = 1 - clamp((self.dead_time - 1.05) / (BOSS_DEATH_DURATION - 1.05), 0, 1)
+            frame = frame.copy()
+            frame.fill((150, 137, 126, 255), special_flags=pygame.BLEND_RGBA_MULT)
+            frame.set_alpha(int(255 * fade))
         # The scaled strips retain three transparent pixels below the boots.
         # Four pixels place the visible soles one pixel into the shadow/ground.
-        rect = frame.get_rect(midbottom=(pos.x, pos.y + 4))
+        rect = frame.get_rect(midbottom=(pos.x, pos.y + 4 + death_sink))
         surface.blit(frame, rect)
         if self.state == "stagger":
             draw_text(surface, pygame.font.SysFont("georgia", 18), "VULNERÁVEL", (pos.x, pos.y - 175), (226, 182, 87), "center")
@@ -918,17 +937,30 @@ class Game:
         boss_box = self.boss.hurt_box()
         if hitbox and not self.hero.hit_done and hitbox.colliderect(boss_box):
             self.hero.hit_done = True
+            boss_was_alive = self.boss.hp > 0
             if self.boss.receive(damage):
                 self.freeze, self.shake = ((.09, 9) if damage > 20 else (.05, 5))
                 self.burst(self.boss.pos - pygame.Vector2(self.hero.facing * 45, 85), (153, 37, 36), 15)
+                if boss_was_alive and not self.boss.hp:
+                    self.freeze, self.shake = .18, 20
+                    self.waves.append([self.boss.pos.copy(), 25.0, .9])
+                    self.burst(self.boss.pos - pygame.Vector2(0, 78), (202, 108, 43), 38, 280)
+                    self.burst(self.boss.pos - pygame.Vector2(0, 55), (94, 86, 78), 46, 190)
         # During a dodge the hero can roll through the boss. Body separation
         # resumes as soon as the roll ends.
-        if abs(self.hero.pos.x - self.boss.pos.x) < 72 and self.hero.grounded and self.hero.state != "dodge":
+        if self.boss.hp and abs(self.hero.pos.x - self.boss.pos.x) < 72 and self.hero.grounded and self.hero.state != "dodge":
             direction = 1 if self.hero.pos.x > self.boss.pos.x else -1
             overlap = 72 - abs(self.hero.pos.x - self.boss.pos.x)
             self.hero.pos.x += direction * overlap * .72
             self.boss.pos.x -= direction * overlap * .28
         self.particles = [particle for particle in self.particles if particle.update(dt)]
+        if self.boss.state == "dead" and self.boss.dead_time < BOSS_DEATH_DURATION:
+            for _ in range(2):
+                if random.random() < 18 * dt:
+                    ash_pos = self.boss.pos + pygame.Vector2(random.uniform(-62, 62), random.uniform(-135, -18))
+                    ash_velocity = pygame.Vector2(random.uniform(-28, 28), random.uniform(-95, -32))
+                    ash_color = random.choice(((171, 91, 38), (112, 97, 82), (73, 69, 65)))
+                    self.particles.append(Particle(ash_pos, ash_velocity, ash_color, random.uniform(.5, 1.1), random.uniform(2, 5), -12))
         for wave in self.waves:
             wave[1] += 360 * dt
             wave[2] -= dt
@@ -1139,7 +1171,8 @@ class Game:
             pygame.draw.rect(layer, (*color, 235), moved, 2)
 
         box(self.hero.hurt_box(), (45, 145, 255))
-        box(self.boss.hurt_box(), (255, 155, 45))
+        if self.boss.hp:
+            box(self.boss.hurt_box(), (255, 155, 45))
         hero_attack, _ = self.hero.attack_box()
         box(hero_attack, (45, 235, 100))
         box(self.boss.attack_box(), (255, 45, 65))
@@ -1189,8 +1222,8 @@ class Game:
             self.overlay("PAUSADO", "ESC para continuar", (214, 203, 186))
         elif not self.hero.hp:
             self.draw_death_screen()
-        elif not self.boss.hp and self.end_timer > .8:
-            self.overlay("CULPA PURIFICADA", "R  lutar novamente", (219, 176, 82))
+        elif not self.boss.hp and self.end_timer > VICTORY_MESSAGE_DELAY:
+            self.overlay("Herdeiro do Fogo Destruído", "R  desafiar novamente", (219, 176, 82))
         pygame.display.flip()
 
     def run(self):
