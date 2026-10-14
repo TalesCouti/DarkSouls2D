@@ -12,8 +12,15 @@ py main.py
 ```
 
 Ao abrir, o jogo apresenta o menu principal. Pressione `Enter` para escolher
-`JOGAR`. A trilha de Gundyr fica em `ost/gundyr_boss.ogg` e é reproduzida em
-loop durante o menu e o duelo.
+`JOGAR` ou clique na opção. Durante o duelo, a música de Gundyr é reproduzida
+em loop a partir de `ost/Iudex Gundyr (Vorbis).ogg`. Essa cópia foi convertida
+para Ogg Vorbis porque o arquivo original em Opus não abre no Pygame.
+
+Ao gerar o executável, inclua a música junto dos sprites:
+
+```powershell
+pyinstaller --noconfirm --clean --windowed --name AshenTrial --add-data "assets;assets" --add-data "ost/Iudex Gundyr (Vorbis).ogg;ost" main.py
+```
 
 ## Controles
 

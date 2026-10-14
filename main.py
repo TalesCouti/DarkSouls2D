@@ -636,7 +636,7 @@ class Gundyr:
 class Game:
     def __init__(self, capture=False):
         pygame.init()
-        pygame.display.set_caption("Ashen Penitent")
+        pygame.display.set_caption("Dark Souls 2D")
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.font_small = pygame.font.SysFont("georgia", 17)
@@ -650,12 +650,11 @@ class Game:
         self.show_hitboxes = True
         self.menu = True
         self.music_ready = False
-        self.start_music()
         self.restart()
 
     def start_music(self):
         """Start the boss theme when an audio device and OST file are available."""
-        track = ROOT / "ost" / "gundyr_boss.ogg"
+        track = ROOT / "ost" / "Iudex Gundyr (Vorbis).ogg"
         try:
             if track.exists():
                 pygame.mixer.music.load(track)
@@ -671,6 +670,8 @@ class Game:
         self.particles, self.waves = [], []
         self.shake = self.freeze = self.end_timer = 0.0
         self.help_time, self.paused = 8.0, False
+        if not self.menu:
+            self.start_music()
 
     def build_background(self):
         arena_path = ROOT / "assets" / "arena_gundyr_v1.png"
@@ -745,7 +746,7 @@ class Game:
                 return False, jump
             if event.type == pygame.KEYDOWN:
                 if self.menu:
-                    if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_e):
+                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
                         self.menu = False
                         self.restart()
                     elif event.key == pygame.K_ESCAPE:
@@ -768,6 +769,11 @@ class Game:
                         self.hero.parry()
                     elif event.key == pygame.K_e:
                         self.hero.heal()
+            if event.type == pygame.MOUSEBUTTONDOWN and self.menu:
+                if event.button == 1 and pygame.Rect(WIDTH // 2 - 125, 365, 250, 58).collidepoint(event.pos):
+                    self.menu = False
+                    self.restart()
+                continue
             if event.type == pygame.MOUSEBUTTONDOWN and not self.paused and self.hero.hp and self.boss.hp:
                 if event.button == 1:
                     self.hero.attack()
@@ -831,6 +837,9 @@ class Game:
         self.shake = max(0, self.shake - 24 * dt)
         if not self.hero.hp or not self.boss.hp:
             self.end_timer += dt
+            if self.music_ready:
+                pygame.mixer.music.fadeout(1100)
+                self.music_ready = False
 
     def draw_bar(self, rect, ratio, color):
         pygame.draw.rect(self.screen, (3, 3, 5), rect.inflate(10, 8))
@@ -876,8 +885,13 @@ class Game:
         rule = pygame.Surface((720, 2), pygame.SRCALPHA)
         pygame.draw.line(rule, (145, 119, 77, 175), (0, 1), (720, 1))
         self.screen.blit(rule, (WIDTH // 2 - 360, 303))
-        draw_text(self.screen, self.font_ui, "JOGAR", (WIDTH // 2, 390), (213, 174, 91), "center")
-        draw_text(self.screen, self.font_small, "ENTER   iniciar duelo", (WIDTH // 2, 434), (152, 145, 135), "center")
+        button = pygame.Rect(WIDTH // 2 - 125, 365, 250, 58)
+        hovered = button.collidepoint(pygame.mouse.get_pos())
+        glow = pygame.Surface((button.width, button.height), pygame.SRCALPHA)
+        glow.fill((108, 76, 31, 45 if hovered else 28))
+        self.screen.blit(glow, button.topleft)
+        draw_text(self.screen, self.font_ui, "JOGAR", button.center, (240, 201, 119) if hovered else (213, 174, 91), "center")
+        draw_text(self.screen, self.font_small, "ENTER   ou clique para iniciar", (WIDTH // 2, 434), (152, 145, 135), "center")
         draw_text(self.screen, self.font_small, "Uma peregrinação ao pátio de Gundyr", (WIDTH // 2, 650), (110, 105, 101), "center")
 
     def overlay(self, title, subtitle, color):
