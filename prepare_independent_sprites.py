@@ -50,6 +50,42 @@ SOURCES = {
     ),
 }
 
+BOSS_ATTACKS = frozenset((
+    "sweep_a", "sweep_b", "thrust_a", "thrust_b", "slam", "special"
+))
+
+# The source paintings overlap in a few places, so some neighboring weapons
+# are already fused to a pose before any grid slicing. These small regions are
+# the *other* pose's weapon/leg, measured in the exported cell's coordinates.
+# Keep them explicit: a broad automatic crop would also remove the real axe.
+BOSS_SHEET_BLEED = {
+    ("sweep_a", 5): ((145, 120, 49, 36),),
+    ("sweep_a", 6): ((145, 120, 49, 36),),
+    ("sweep_b", 0): ((128, 0, 55, 72),),
+    ("sweep_b", 1): ((0, 88, 64, 36), (160, 0, 23, 80)),
+    ("sweep_b", 2): ((0, 105, 30, 19), (145, 100, 38, 24)),
+    ("sweep_b", 3): ((0, 106, 61, 18),),
+    ("sweep_b", 5): ((147, 100, 36, 24),),
+    ("sweep_b", 6): ((147, 100, 36, 24),),
+    ("thrust_a", 1): ((142, 0, 52, 64),),
+    ("thrust_b", 1): ((0, 119, 81, 42),),
+    ("thrust_b", 3): ((150, 120, 83, 41),),
+    ("thrust_b", 6): ((158, 119, 75, 42),),
+    ("thrust_b", 7): ((0, 80, 20, 81),),
+}
+
+# When silhouettes actually overlap, no crop can recover the hidden pixels.
+# Reuse the closest intact attack pose rather than displaying two axe heads.
+BOSS_FRAME_REPLACEMENTS = {
+    ("sweep_a", 6): 5,
+    ("sweep_b", 6): 5,
+    ("sweep_b", 7): 8,
+    ("thrust_a", 3): 4,
+    ("thrust_a", 6): 8,
+    ("thrust_a", 7): 8,
+    ("thrust_b", 4): 5,
+}
+
 
 def opaque_bbox(surface: pygame.Surface) -> pygame.Rect:
     mask = pygame.mask.from_surface(surface, ALPHA_THRESHOLD)
@@ -131,15 +167,99 @@ def split_grid(sheet: pygame.Surface, *, separate_rows: bool = False):
     return frames, metadata
 
 
+def split_connected_poses(sheet: pygame.Surface):
+    """Keep each boss and halberd together when their horizontal ranges overlap."""
+    width = sheet.get_width()
+    _, y_boundaries = grid_boundaries(sheet)
+    frames = []
+    metadata = []
+
+    for row, (top, bottom) in enumerate(zip(y_boundaries, y_boundaries[1:])):
+        region = sheet.subsurface((0, top, width, bottom - top))
+        mask = pygame.mask.from_surface(region, ALPHA_THRESHOLD)
+        components = sorted(
+            mask.connected_components(700),
+            key=lambda component: component.get_bounding_rects()[0].left,
+        )
+        if len(components) not in (GRID_COLUMNS - 1, GRID_COLUMNS):
+            raise RuntimeError(
+                f"boss row {row + 1}: expected 4 or 5 figures, found {len(components)}"
+            )
+
+        joined = None
+        if len(components) == GRID_COLUMNS - 1:
+            joined = max(
+                range(len(components)),
+                key=lambda index: components[index].get_bounding_rects()[0].width,
+            )
+            joined_width = components[joined].get_bounding_rects()[0].width
+            if joined_width < width // 3:
+                raise RuntimeError(f"boss row {row + 1}: cannot locate touching figures")
+
+        source_alpha = pygame.surfarray.array_alpha(region)
+        selections = []
+        for index, component in enumerate(components):
+            selected = pygame.surfarray.array_alpha(
+                component.to_surface(
+                    setcolor=(255, 255, 255, 255),
+                    unsetcolor=(0, 0, 0, 0),
+                )
+            ) > 0
+            if index != joined:
+                selections.append(selected)
+                continue
+
+            # A few generated poses touch at the staff. Cut only that narrow
+            # contact, keeping every other pixel with its connected figure.
+            nominal = width * (index + 1) // GRID_COLUMNS
+            radius = width // 16
+            column_ink = (source_alpha > ALPHA_THRESHOLD).sum(axis=1)
+            cut = min(
+                range(nominal - radius, nominal + radius + 1),
+                key=lambda x: (column_ink[x], abs(x - nominal)),
+            )
+            left = selected.copy()
+            left[cut:, :] = False
+            right = selected.copy()
+            right[:cut, :] = False
+            selections.extend((left, right))
+
+        if len(selections) != GRID_COLUMNS:
+            raise RuntimeError(f"boss row {row + 1}: incomplete pose separation")
+
+        for column in range(GRID_COLUMNS):
+            selected = selections[column]
+            # Retain the low-alpha outline around each connected silhouette.
+            outline = selected.copy()
+            outline[1:, :] |= selected[:-1, :]
+            outline[:-1, :] |= selected[1:, :]
+            outline[:, 1:] |= selected[:, :-1]
+            outline[:, :-1] |= selected[:, 1:]
+            frame = region.copy()
+            alpha = pygame.surfarray.pixels_alpha(frame)
+            alpha[~outline] = 0
+            del alpha
+            bbox = opaque_bbox(frame)
+            if not bbox.width or not bbox.height:
+                raise RuntimeError(f"empty boss pose at row {row + 1}, column {column + 1}")
+            frames.append(frame)
+            metadata.append((bbox, row))
+
+    return frames, metadata
+
+
 def build_strip(prefix: str, animation: str, target_neutral_height: int):
     source_prefix = "boss" if prefix == "gundyr" else prefix
     source_path = SOURCE_DIR / f"{source_prefix}_{animation}.png"
     sheet = pygame.image.load(source_path).convert_alpha()
     # The lower-row thrusts in heavy_b extend across the upper row's cuts.
     # Find independent transparent gaps so each blade remains with its owner.
-    frames, metadata = split_grid(
-        sheet, separate_rows=prefix == "hero" and animation == "heavy_b"
-    )
+    if prefix == "gundyr" and animation in BOSS_ATTACKS:
+        frames, metadata = split_connected_poses(sheet)
+    else:
+        frames, metadata = split_grid(
+            sheet, separate_rows=prefix == "hero" and animation == "heavy_b"
+        )
 
     # Death ends in a deliberately short lying pose. Scale from the initial
     # standing frame so the armor remains the same size as the other strips.
@@ -171,6 +291,11 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             )
         )
 
+    if prefix == "gundyr":
+        for (attack, frame_index), replacement in BOSS_FRAME_REPLACEMENTS.items():
+            if animation == attack:
+                prepared[frame_index] = prepared[replacement]
+
     cell_width = (
         max(frame.get_width() for frame, _ in prepared)
         + HORIZONTAL_PADDING * 2
@@ -190,6 +315,10 @@ def build_strip(prefix: str, animation: str, target_neutral_height: int):
             baseline - lift - frame.get_height(),
         )
         isolated_cell.blit(frame, destination)
+
+        if prefix == "gundyr":
+            for rect in BOSS_SHEET_BLEED.get((animation, index), ()):
+                isolated_cell.fill((0, 0, 0, 0), rect)
 
         content = opaque_bbox(isolated_cell)
         if (
