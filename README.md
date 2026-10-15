@@ -2,7 +2,7 @@
 
 Jogo 2D lateral em pixel art inspirado em *Dark Souls 3*, com exploração pelo **Cemitério das Cinzas**, combate metódico e uma luta contra **Iudex Gundyr**, sem lock-on.
 
-O percurso começa junto a uma fogueira, atravessa ruínas, túmulos, névoa e grupos de Hollows e termina no portão de névoa da arena. A fogueira restaura vida, stamina e Estus e faz os inimigos renascerem. Ao morrer, uma transição escura exibe “VOCÊ MORREU” antes da opção de renascer na fogueira.
+O percurso começa junto a uma fogueira, atravessa ruínas, túmulos, névoa e grupos de Hollows e termina no portão de névoa da arena. O portão usa camadas procedurais e partículas animadas e, ao interagir, conduz o jogador pela fumaça antes de iniciar Gundyr. A fogueira restaura vida, stamina e Estus e faz os inimigos renascerem. Ao morrer, uma transição escura exibe “VOCÊ MORREU” antes da opção de renascer na fogueira.
 
 ## Executar
 
@@ -57,6 +57,6 @@ Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte
 
 - Cavaleiro: idle, corrida, rolamento, defesa, beber Estus, morte com pose final deitada, dois ataques leves e dois ataques fortes.
 - Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada com passos alternados, duas varreduras, duas estocadas, golpe vertical e movimentos especiais.
-- Hollows: seis tiras próprias com dez quadros cada (idle, caminhada, ataque, dano, stagger e morte), geradas por `tools/make_hollow_sprites.py` com transparência real e linha de chão compatível com os demais personagens.
+- Hollows: sete PNGs de animação próprios com dez personagens completos cada (idle, caminhada, corrida/perseguição, ataque, dano, stagger e morte). As artes completas ficam em `assets/source_animations_v4/`; `tools/prepare_hollow_animations.py` apenas reorganiza quadros inteiros no formato horizontal usado pelo jogo, sem montar ou recortar partes do corpo.
 
 Os atlases-fonte antigos ficam em `assets/hero_v3_atlas.png` e `assets/gundyr_v3_atlas.png`. Para reexportá-los, execute `py prepare_sprites.py`. Para reexportar as animações independentes corrigidas, execute `py prepare_independent_sprites.py`.

@@ -23,8 +23,17 @@ BOSS_ARENA_RIGHT = BOSS_ARENA_LEFT + WIDTH
 BOSS_SPAWN_X = BOSS_ARENA_LEFT + 930
 HOLLOW_SPAWNS = (720, 1190, 1660, 2180, 2760)
 HOLLOW_SOULS = 80
+HOLLOW_VISION_RANGE = 360
+HOLLOW_LOSE_RANGE = 520
+HOLLOW_ATTACK_RANGE = 78
+HOLLOW_LEASH_RANGE = 330
+HOLLOW_ATTACK_DURATION = 1.08
+HOLLOW_HURT_DURATION = .36
+HOLLOW_STAGGER_DURATION = 1.05
+HOLLOW_TRANSITION_DURATION = .11
+HOLLOW_HEALTH_BAR_TIME = 3.0
 INTERACTION_RANGE = 105
-FOG_ENTER_DURATION = .8
+FOG_ENTER_DURATION = 1.35
 HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
@@ -80,7 +89,7 @@ class SpriteArt:
         )
         self.hollow = self._strips(
             "hollow",
-            ("idle", "walk", "attack", "hurt", "stagger", "death"),
+            ("idle", "walk", "run", "attack", "hurt", "stagger", "death"),
             1.05,
             required=False,
         )
@@ -395,102 +404,336 @@ class World:
 
     def __init__(self):
         rng = random.Random(3303)
-        self.graves = [(x, rng.randint(28, 62), rng.randint(-8, 8)) for x in range(420, WORLD_WIDTH, 145)]
-        self.trees = [(x, rng.randint(120, 210)) for x in range(160, WORLD_WIDTH, 390)]
-        self.ruins = [(x, rng.randint(90, 175)) for x in range(520, WORLD_WIDTH, 610)]
+        painting_path = ROOT / "assets" / "cemetery_ash_v2.png"
+        self.painting = None
+        if painting_path.exists():
+            source = pygame.image.load(painting_path).convert()
+            self.painting = pygame.transform.smoothscale(source, (2100, HEIGHT))
+            cold_grade = pygame.Surface(self.painting.get_size(), pygame.SRCALPHA)
+            cold_grade.fill((24, 31, 43, 34))
+            self.painting.blit(cold_grade, (0, 0))
+        self.foreground = [
+            (x, rng.randint(8, 24), rng.choice((-1, 1)), rng.choice(("root", "grass", "stone")))
+            for x in range(100, WORLD_WIDTH, 72)
+        ]
 
     def draw(self, surface, camera_x, time):
-        surface.fill((22, 28, 38))
-        pygame.draw.circle(surface, (98, 104, 113), (995 - int(camera_x * .08), 125), 82)
-        pygame.draw.circle(surface, (38, 44, 54), (1022 - int(camera_x * .08), 112), 67)
-        for layer, (color, speed, base, step) in enumerate((
-            ((42, 49, 61), .12, 345, 240),
-            ((31, 38, 48), .25, 430, 185),
-        )):
-            points = [(-80, HEIGHT)]
-            shift = -int(camera_x * speed) % step
-            for x in range(shift - step, WIDTH + step, step):
-                peak = base - ((x // step + layer) % 3) * 34
-                points.extend(((x, base + 70), (x + step // 2, peak), (x + step, base + 70)))
-            points.append((WIDTH + 80, HEIGHT))
-            pygame.draw.polygon(surface, color, points)
+        if self.painting:
+            scroll_range = self.painting.get_width() - WIDTH
+            route_progress = clamp(camera_x / max(1, WORLD_WIDTH - WIDTH), 0, 1)
+            surface.blit(self.painting, (-round(scroll_range * route_progress), 0))
+        else:
+            surface.fill((25, 30, 38))
+            for y in range(0, HEIGHT, 12):
+                shade = 33 + y // 38
+                pygame.draw.rect(surface, (shade, shade + 4, shade + 9), (0, y, WIDTH, 13))
 
-        for x, height in self.ruins:
-            sx = int(x - camera_x * .55)
-            if -180 < sx < WIDTH + 120:
-                pygame.draw.rect(surface, (38, 42, 48), (sx, GROUND - height - 45, 72, height + 45))
-                pygame.draw.rect(surface, (20, 25, 31), (sx + 20, GROUND - height, 31, height), border_radius=14)
-                pygame.draw.line(surface, (64, 66, 69), (sx, GROUND - height - 45), (sx + 72, GROUND - height - 45), 3)
+        # Two moving veils give the static painting depth without obscuring it.
+        far_fog = pygame.Surface((WIDTH, 160), pygame.SRCALPHA)
+        for index in range(7):
+            x = ((index * 235 - int(camera_x * .16) + int(time * 7)) % (WIDTH + 330)) - 180
+            pygame.draw.ellipse(far_fog, (166, 174, 181, 13), (x, 16 + index % 3 * 24, 330, 68))
+        surface.blit(far_fog, (0, GROUND - 245))
 
-        for x, height in self.trees:
-            sx = int(x - camera_x * .78)
-            if -130 < sx < WIDTH + 130:
-                pygame.draw.line(surface, (28, 27, 30), (sx, GROUND), (sx + 5, GROUND - height), 13)
-                for side, dy in ((-1, 48), (1, 72), (-1, 104), (1, 132)):
-                    start = (sx + 4, GROUND - height + dy)
-                    end = (sx + side * (45 + dy // 5), start[1] - 35)
-                    pygame.draw.line(surface, (28, 27, 30), start, end, 6)
-                    pygame.draw.line(surface, (28, 27, 30), end, (end[0] + side * 20, end[1] - 23), 3)
-
-        pygame.draw.rect(surface, (38, 40, 43), (0, GROUND, WIDTH, HEIGHT - GROUND))
-        pygame.draw.line(surface, (86, 80, 72), (0, GROUND), (WIDTH, GROUND), 3)
-        for x, height, tilt in self.graves:
+        for x, height, direction, kind in self.foreground:
             sx = int(x - camera_x)
-            if -60 < sx < WIDTH + 60:
-                stone = pygame.Surface((44, height + 12), pygame.SRCALPHA)
-                pygame.draw.rect(stone, (53, 55, 58), (5, 10, 34, height), border_radius=7)
-                pygame.draw.rect(stone, (78, 78, 77), (5, 10, 34, height), 2, border_radius=7)
-                pygame.draw.line(stone, (32, 34, 36), (20, 24), (20, height - 3), 2)
-                pygame.draw.line(stone, (32, 34, 36), (12, 34), (29, 34), 2)
-                stone = pygame.transform.rotate(stone, tilt)
-                surface.blit(stone, stone.get_rect(midbottom=(sx, GROUND + 3)))
+            if not -35 < sx < WIDTH + 35:
+                continue
+            if kind == "root":
+                pygame.draw.line(surface, (24, 23, 22), (sx, GROUND + 5), (sx + direction * height * 2, GROUND - height // 2), 3)
+                pygame.draw.line(surface, (62, 57, 49), (sx, GROUND + 4), (sx + direction * height, GROUND), 1)
+            elif kind == "grass":
+                for blade in (-5, 0, 5):
+                    pygame.draw.line(surface, (54, 55, 49), (sx + blade, GROUND + 3), (sx + blade + direction * 4, GROUND - height), 1)
+            else:
+                rock = (
+                    (sx - 13, GROUND + 3),
+                    (sx - 10, GROUND - height // 3),
+                    (sx - 2, GROUND - height),
+                    (sx + 9, GROUND - height * 2 // 3),
+                    (sx + 15, GROUND + 3),
+                )
+                pygame.draw.polygon(surface, (37, 38, 38), rock)
+                pygame.draw.lines(surface, (83, 81, 75), False, rock[1:4], 1)
 
-        fog = pygame.Surface((WIDTH, 120), pygame.SRCALPHA)
-        for index in range(9):
-            x = ((index * 190 - int(camera_x * .32) + int(time * 13)) % (WIDTH + 260)) - 130
-            pygame.draw.ellipse(fog, (151, 157, 164, 13), (x, 28 + index % 3 * 17, 260, 48))
-        surface.blit(fog, (0, GROUND - 82))
+        near_fog = pygame.Surface((WIDTH, 92), pygame.SRCALPHA)
+        for index in range(8):
+            x = ((index * 205 - int(camera_x * .38) - int(time * 12)) % (WIDTH + 280)) - 145
+            pygame.draw.ellipse(near_fog, (188, 192, 193, 16), (x, 23 + index % 2 * 19, 285, 48))
+        surface.blit(near_fog, (0, GROUND - 58))
 
 
 class Bonfire:
     def __init__(self, x=BONFIRE_X):
         self.x = x
+        sprite_path = ROOT / "assets" / "bonfire_v2.png"
+        self.sprite = None
+        if sprite_path.exists():
+            source = pygame.image.load(sprite_path).convert_alpha()
+            self.sprite = pygame.transform.smoothscale(source, (118, 118))
 
     def near(self, hero):
         return abs(hero.pos.x - self.x) <= INTERACTION_RANGE
 
     def draw(self, surface, offset, time):
         x = int(self.x + offset.x)
-        pygame.draw.ellipse(surface, (14, 13, 14), (x - 43, GROUND - 6, 86, 18))
-        for angle in (-.5, .05, .55):
-            end = (x + math.cos(angle) * 36, GROUND - 5 + math.sin(angle) * 12)
-            pygame.draw.line(surface, (47, 32, 24), (x, GROUND - 8), end, 8)
-            pygame.draw.line(surface, (110, 67, 35), (x, GROUND - 9), end, 3)
-        flame = 22 + math.sin(time * 7) * 5
-        pygame.draw.polygon(surface, (202, 72, 25), [(x - 11, GROUND - 10), (x, GROUND - 10 - flame), (x + 12, GROUND - 10)])
-        pygame.draw.polygon(surface, (244, 173, 55), [(x - 6, GROUND - 11), (x + 2, GROUND - 7 - flame * .72), (x + 7, GROUND - 11)])
+        glow = pygame.Surface((150, 130), pygame.SRCALPHA)
+        for radius, alpha in ((62, 7), (44, 12), (28, 20)):
+            pygame.draw.ellipse(glow, (235, 103, 28, alpha), (75 - radius, 80 - radius, radius * 2, radius * 1.35))
+        surface.blit(glow, (x - 75, GROUND - 112))
+        if self.sprite:
+            surface.blit(self.sprite, self.sprite.get_rect(midbottom=(x, GROUND + 5)))
+        else:
+            pygame.draw.ellipse(surface, (10, 9, 9), (x - 47, GROUND - 7, 94, 18))
+            pygame.draw.polygon(surface, (210, 76, 24), ((x - 18, GROUND - 8), (x, GROUND - 72), (x + 18, GROUND - 8)))
+            pygame.draw.line(surface, (92, 87, 78), (x, GROUND - 15), (x, GROUND - 91), 5)
+        for ember in range(5):
+            phase = (time * (19 + ember * 2) + ember * 1.7) % 1
+            ex = x + math.sin(time * 4 + ember) * (8 + ember * 2)
+            ey = GROUND - 30 - phase * (35 + ember * 5)
+            pygame.draw.circle(surface, (238, 135 + ember * 9, 47), (round(ex), round(ey)), 1)
 
 
-class FogGate:
-    def __init__(self, x=FOG_GATE_X):
-        self.x = x
+class BossFogGate:
+    """Animated world-space barrier and the one-shot boss entrance sequence."""
+
+    IDLE = "IDLE"
+    PLAYER_NEAR = "PLAYER_NEAR"
+    ENTERING = "ENTERING"
+    ENTERED = "ENTERED"
+    LOCKED = "LOCKED"
+    TOP = 218
+    WIDTH = 112
+    HEIGHT = GROUND - TOP
+
+    def __init__(self, x=FOG_GATE_X, seed=3303):
+        self.x = float(x)
+        self.state = self.IDLE
+        self.elapsed = 0.0
+        self.time = 0.0
+        self.entry_start_x = self.x - 58
+        self.entry_target_x = self.x + 68
+        self._completed = False
+        self._rng = random.Random(seed)
+        self._clouds = self._build_clouds()
+        self._transition_clouds = [
+            pygame.transform.smoothscale(self._clouds[index], size)
+            for index, size in enumerate(((520, 310), (640, 360), (460, 280), (590, 340)))
+        ]
+        self._canvas = pygame.Surface((176, self.HEIGHT + 36), pygame.SRCALPHA)
+        self._transition_layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        self._motes = [self._new_mote(initial=True) for _ in range(26)]
+
+    @staticmethod
+    def _build_clouds():
+        """Pre-render soft smoke masses once; only their placement changes."""
+        clouds = []
+        for width, height, tint in (
+            (104, 58, (164, 171, 179)),
+            (124, 72, (190, 194, 198)),
+            (88, 50, (137, 146, 158)),
+            (142, 78, (181, 187, 194)),
+        ):
+            cloud = pygame.Surface((width, height), pygame.SRCALPHA)
+            for inset, alpha in ((0, 11), (6, 20), (13, 34), (20, 52)):
+                rect = pygame.Rect(inset, inset // 2, width - inset * 2, height - inset)
+                if rect.width > 0 and rect.height > 0:
+                    pygame.draw.ellipse(cloud, (*tint, alpha), rect)
+            clouds.append(cloud)
+        return clouds
+
+    def _new_mote(self, initial=False):
+        return {
+            "x": self._rng.uniform(-55, 55),
+            "y": self._rng.uniform(0, self.HEIGHT) if initial else self.HEIGHT + self._rng.uniform(3, 28),
+            "vx": self._rng.uniform(-7, 7),
+            "vy": self._rng.uniform(-26, -10),
+            "radius": self._rng.choice((1.0, 1.5, 2.0, 3.0)),
+            "phase": self._rng.uniform(0, math.tau),
+            "alpha": self._rng.randint(32, 88),
+        }
+
+    @property
+    def entering(self):
+        return self.state == self.ENTERING
+
+    @property
+    def progress(self):
+        return clamp(self.elapsed / FOG_ENTER_DURATION, 0, 1) if self.entering else 0.0
+
+    def reset(self):
+        self.state = self.IDLE
+        self.elapsed = 0.0
+        self._completed = False
 
     def near(self, hero):
         return abs(hero.pos.x - self.x) <= INTERACTION_RANGE
 
-    def draw(self, surface, offset, time, sealed=True):
-        x = int(self.x + offset.x)
-        if x < -90 or x > WIDTH + 90:
+    def begin(self, hero, sealed=True):
+        if not sealed or self.entering or self.state in (self.ENTERED, self.LOCKED) or not self.near(hero):
+            return False
+        self.state = self.ENTERING
+        self.elapsed = 0.0
+        self.entry_start_x = min(hero.pos.x, self.x - 48)
+        self.entry_target_x = self.x + 68
+        self._completed = False
+        return True
+
+    def advance(self, dt):
+        self.time += dt
+        for index, mote in enumerate(self._motes):
+            mote["y"] += mote["vy"] * dt
+            mote["x"] += (mote["vx"] + math.sin(self.time * 2.1 + mote["phase"]) * 5) * dt
+            if mote["y"] < -18 or abs(mote["x"]) > 82:
+                self._motes[index] = self._new_mote()
+
+    def update(self, dt, hero, sealed=True):
+        self.advance(dt)
+        if not sealed:
+            self.state = self.ENTERED
+            return False
+        if self.entering:
+            self.elapsed = min(FOG_ENTER_DURATION, self.elapsed + dt)
+            progress = self.elapsed / FOG_ENTER_DURATION
+            eased = progress * progress * (3 - 2 * progress)
+            hero.pos.x = self.entry_start_x + (self.entry_target_x - self.entry_start_x) * eased
+            hero.velocity.x = 0
+            if progress >= 1 and not self._completed:
+                self._completed = True
+                self.state = self.ENTERED
+                return True
+            return False
+        self.state = self.PLAYER_NEAR if self.near(hero) else self.IDLE
+        return False
+
+    def _draw_arch(self, surface, screen_x):
+        # Chunky, irregular masonry keeps the entrance readable as brickwork
+        # even behind the animated fog.  Staggered joints avoid two flat posts.
+        mortar = (13, 14, 17)
+        brick_dark = (31, 31, 34)
+        brick_mid = (48, 46, 45)
+        brick_light = (72, 66, 61)
+        brick_w, brick_h, joint = 18, 13, 2
+
+        for side, pillar_x in ((-1, screen_x - 70), (1, screen_x + 48)):
+            pygame.draw.rect(surface, mortar, (pillar_x - 2, self.TOP - 2, 24, self.HEIGHT + 9))
+            row = 0
+            for y in range(self.TOP, GROUND + 1, brick_h + joint):
+                offset = -9 if row % 2 else 0
+                for column in range(-1, 3):
+                    x = pillar_x + offset + column * (brick_w + joint)
+                    # Trim the outer overflow while leaving an uneven silhouette.
+                    if x + brick_w <= pillar_x or x >= pillar_x + 22:
+                        continue
+                    left = max(x, pillar_x)
+                    right = min(x + brick_w, pillar_x + 22)
+                    width = right - left
+                    shade = brick_mid if (row + column + (side > 0)) % 3 else brick_dark
+                    pygame.draw.rect(surface, shade, (left, y, width, brick_h))
+                    pygame.draw.line(surface, brick_light, (left + 1, y + 1), (right - 2, y + 1), 1)
+                    pygame.draw.line(surface, (24, 24, 27), (left, y + brick_h - 1), (right - 1, y + brick_h - 1), 1)
+                row += 1
+
+        # Wedge-shaped bricks follow the curve instead of forming a smooth ring.
+        arch_center = pygame.Vector2(screen_x, self.TOP + 3)
+        inner_radius, outer_radius = 49, 70
+        segments = 11
+        for index in range(segments):
+            angle_a = math.pi + index * math.pi / segments
+            angle_b = math.pi + (index + 1) * math.pi / segments
+            gap = .025
+            points = []
+            for radius, angle in (
+                (outer_radius, angle_a + gap),
+                (outer_radius, angle_b - gap),
+                (inner_radius, angle_b - gap),
+                (inner_radius, angle_a + gap),
+            ):
+                points.append((
+                    round(arch_center.x + math.cos(angle) * radius),
+                    round(arch_center.y + math.sin(angle) * radius),
+                ))
+            shade = brick_mid if index % 3 else brick_dark
+            pygame.draw.polygon(surface, mortar, points)
+            inset_points = []
+            for radius, angle in (
+                (outer_radius - 2, angle_a + gap * 1.7),
+                (outer_radius - 2, angle_b - gap * 1.7),
+                (inner_radius + 2, angle_b - gap * 1.7),
+                (inner_radius + 2, angle_a + gap * 1.7),
+            ):
+                inset_points.append((
+                    round(arch_center.x + math.cos(angle) * radius),
+                    round(arch_center.y + math.sin(angle) * radius),
+                ))
+            pygame.draw.polygon(surface, shade, inset_points)
+            pygame.draw.line(surface, brick_light, inset_points[0], inset_points[1], 1)
+
+        # Broad footings visually anchor the old masonry in the ground.
+        for footing_x in (screen_x - 75, screen_x + 46):
+            pygame.draw.rect(surface, mortar, (footing_x, GROUND - 7, 31, 12))
+            pygame.draw.rect(surface, brick_dark, (footing_x + 2, GROUND - 5, 27, 8))
+            pygame.draw.line(surface, brick_light, (footing_x + 3, GROUND - 4), (footing_x + 27, GROUND - 4), 1)
+
+    def draw(self, surface, offset, time, sealed=True, foreground=False, world_x=None):
+        screen_x = int((self.x if world_x is None else world_x) + offset.x)
+        if screen_x < -120 or screen_x > WIDTH + 120:
             return
-        pygame.draw.rect(surface, (24, 23, 27), (x - 58, 218, 116, GROUND - 218))
-        pygame.draw.arc(surface, (78, 75, 76), (x - 61, 173, 122, 112), math.pi, math.tau, 8)
-        if sealed:
-            fog = pygame.Surface((106, GROUND - 229), pygame.SRCALPHA)
-            for band in range(9):
-                wave = math.sin(time * 2.3 + band * .9) * 9
-                alpha = 42 + band * 5
-                pygame.draw.ellipse(fog, (196, 199, 190, alpha), (wave - 18, band * 38 - 18, 138, 76))
-            surface.blit(fog, (x - 53, 224))
+        if not foreground:
+            self._draw_arch(surface, screen_x)
+        if not sealed:
+            return
+
+        canvas = self._canvas
+        canvas.fill((0, 0, 0, 0))
+        reaction = math.sin(self.progress * math.pi) if self.entering else 0.0
+        layer_indices = (0, 1) if not foreground else (2,)
+        for layer in layer_indices:
+            speed = (0.55, -0.82, 1.18)[layer]
+            opacity = (0.72, 0.92, 1.0)[layer] + reaction * 0.2
+            for band in range(8):
+                cloud = self._clouds[(band + layer) % len(self._clouds)]
+                phase = time * speed + band * 1.17 + layer * 2.3
+                x = 88 - cloud.get_width() // 2 + math.sin(phase) * (15 + layer * 5)
+                y = -12 + band * 43 + math.sin(phase * .63) * 12
+                cloud.set_alpha(min(255, round(255 * opacity)))
+                canvas.blit(cloud, (round(x), round(y)))
+
+        if foreground:
+            for mote in self._motes:
+                x = round(88 + mote["x"] + math.sin(time * 1.7 + mote["phase"]) * 4)
+                y = round(mote["y"])
+                alpha = min(145, round(mote["alpha"] * (1 + reaction * .55)))
+                pygame.draw.circle(canvas, (202, 210, 219, alpha), (x, y), max(1, round(mote["radius"])))
+            # Narrow luminous folds suggest depth without making the gate glow.
+            for fold in range(4):
+                fold_x = 58 + fold * 19 + math.sin(time * (1.1 + fold * .09) + fold) * 7
+                points = []
+                for y in range(-8, self.HEIGHT + 24, 18):
+                    points.append((round(fold_x + math.sin(y * .035 + time * 2 + fold) * 7), y))
+                pygame.draw.lines(canvas, (205, 211, 216, 29 + round(reaction * 18)), False, points, 3)
+
+        surface.blit(canvas, (screen_x - 88, self.TOP - 10))
+
+    def draw_transition_overlay(self, surface):
+        """Brief cool veil while the actor is physically crossing the gate."""
+        if not self.entering:
+            return
+        pulse = math.sin(self.progress * math.pi)
+        layer = self._transition_layer
+        layer.fill((8, 11, 16, round(54 * pulse)))
+        for index, cloud in enumerate(self._transition_clouds):
+            direction = -1 if index % 2 else 1
+            x = WIDTH // 2 - cloud.get_width() // 2 + direction * 155
+            x += round(math.sin(self.time * (.8 + index * .13) + index * 1.4) * 115)
+            y = 65 + index * 105 + round(math.sin(self.time * 1.2 + index) * 35)
+            cloud.set_alpha(round((64 + index * 8) * pulse))
+            layer.blit(cloud, (x, y))
+        surface.blit(layer, (0, 0))
+
+
+# Backwards-compatible name for code/tests that imported the old gate directly.
+FogGate = BossFogGate
 
 
 class Hollow:
@@ -504,10 +747,50 @@ class Hollow:
         self.damage = 18 if strong else 12
         self.facing = -1
         self.state, self.timer = "idle", 0.0
+        self.previous_animation = "idle"
+        self.previous_frame = 0
+        self.transition_timer = 0.0
+        self.idle_duration = random.uniform(.65, 1.25)
+        self.attack_cooldown = random.uniform(.15, .45)
+        self.health_bar_timer = 0.0
         self.patrol_direction = -1 if int(x) % 2 else 1
         self.hit_done = False
         self.flash = 0.0
         self.rewarded = False
+
+    def animation_name(self, state=None):
+        state = self.state if state is None else state
+        return {
+            "patrol": "walk",
+            "chase": "run",
+            "dead": "death",
+        }.get(state, state)
+
+    def animation_frame(self, animation=None, timer=None):
+        animation = self.animation_name() if animation is None else animation
+        timer = self.timer if timer is None else timer
+        durations = {
+            "attack": HOLLOW_ATTACK_DURATION,
+            "hurt": HOLLOW_HURT_DURATION,
+            "stagger": HOLLOW_STAGGER_DURATION,
+            "death": 1.2,
+        }
+        if animation in durations:
+            return min(9, int(timer / durations[animation] * 10))
+        speed = 11 if animation == "run" else (8 if animation == "walk" else 4)
+        return int(timer * speed) % 10
+
+    def set_state(self, state, *, reset_timer=True):
+        if state == self.state:
+            return
+        self.previous_animation = self.animation_name()
+        self.previous_frame = self.animation_frame(self.previous_animation)
+        self.transition_timer = HOLLOW_TRANSITION_DURATION
+        self.state = state
+        if reset_timer:
+            self.timer = 0.0
+        if state != "attack":
+            self.hit_done = False
 
     def hurt_box(self):
         if self.state == "dead":
@@ -515,8 +798,8 @@ class Hollow:
         return pygame.Rect(int(self.pos.x - 22), int(self.pos.y - 108), 44, 108)
 
     def attack_box(self):
-        # Frames 5–7 of the ten-frame strip are the active diagonal slash.
-        if self.state == "attack" and .54 <= self.timer <= .86:
+        # Only frames 5–7 of the ten-frame strip carry a damaging blade.
+        if self.state == "attack" and 5 <= self.animation_frame("attack") <= 7:
             left = self.pos.x + 18 if self.facing > 0 else self.pos.x - 88
             return pygame.Rect(int(left), int(self.pos.y - 91), 70, 76)
         return None
@@ -526,28 +809,44 @@ class Hollow:
             return False
         self.hp = max(0, self.hp - damage)
         self.flash = .16
+        self.health_bar_timer = HOLLOW_HEALTH_BAR_TIME
         self.facing = -direction
-        self.state, self.timer = ("dead", 0) if not self.hp else ("hurt", 0)
+        self.set_state("dead" if not self.hp else "hurt")
         return True
 
     def parried(self):
-        self.state, self.timer, self.hit_done = "stagger", 0, True
+        self.set_state("stagger")
+        self.hit_done = True
+        self.health_bar_timer = HOLLOW_HEALTH_BAR_TIME
+
+    @property
+    def health_ratio(self):
+        return clamp(self.hp / self.max_hp, 0, 1)
+
+    def health_bar_visible(self):
+        return self.state != "dead" and (
+            self.health_bar_timer > 0
+            or self.state in ("chase", "attack", "hurt", "stagger")
+        )
 
     def update(self, dt, hero, neighbors):
         self.timer += dt
+        self.transition_timer = max(0, self.transition_timer - dt)
         self.flash = max(0, self.flash - dt)
+        self.health_bar_timer = max(0, self.health_bar_timer - dt)
+        self.attack_cooldown = max(0, self.attack_cooldown - dt)
         if self.state == "dead":
             return None
         distance = hero.pos.x - self.pos.x
         absolute = abs(distance)
         target_facing = 1 if distance > 0 else -1
         if self.state == "hurt":
-            if self.timer > .36:
-                self.state, self.timer = "alert", 0
+            if self.timer >= HOLLOW_HURT_DURATION:
+                self.set_state("chase" if absolute < HOLLOW_LOSE_RANGE and hero.hp else "patrol")
             return None
         if self.state == "stagger":
-            if self.timer > 1.05:
-                self.state, self.timer, self.hit_done = "alert", 0, False
+            if self.timer >= HOLLOW_STAGGER_DURATION:
+                self.set_state("chase" if absolute < HOLLOW_LOSE_RANGE and hero.hp else "patrol")
             return None
         if self.state == "attack":
             box = self.attack_box()
@@ -557,49 +856,53 @@ class Hollow:
                     self.parried()
                     return "parry"
                 return hero.take_damage(self.damage, self.facing, self.pos.x)
-            if self.timer > 1.08:
-                self.state, self.timer, self.hit_done = "alert", 0, False
+            if self.timer >= HOLLOW_ATTACK_DURATION:
+                self.attack_cooldown = .86 if self.strong else .68
+                self.set_state("chase" if hero.hp else "patrol")
             return None
 
-        if absolute < 360:
-            self.state = "alert"
-        elif self.state == "alert" and absolute > 520:
-            self.state = "idle"
-        if self.state == "alert":
+        if not hero.hp and self.state == "chase":
+            self.set_state("patrol")
+        elif hero.hp and absolute <= HOLLOW_VISION_RANGE and self.state in ("idle", "patrol"):
+            self.set_state("chase")
+
+        if self.state == "idle":
+            if self.timer >= self.idle_duration:
+                self.idle_duration = random.uniform(.55, 1.15)
+                self.set_state("patrol")
+            return None
+
+        if self.state == "chase":
+            beyond_leash = abs(self.pos.x - self.spawn_x) >= HOLLOW_LEASH_RANGE
+            if absolute > HOLLOW_LOSE_RANGE or (beyond_leash and target_facing == self.patrol_direction):
+                self.patrol_direction = -1 if self.pos.x > self.spawn_x else 1
+                self.set_state("patrol")
+                return None
             self.facing = target_facing
-            if absolute < 78:
-                self.state, self.timer, self.hit_done = "attack", 0, False
+            if absolute <= HOLLOW_ATTACK_RANGE and self.attack_cooldown <= 0:
+                self.set_state("attack")
+                self.hit_done = False
             else:
                 blocked = any(other is not self and other.state != "dead" and abs(other.pos.x - self.pos.x) < 54 and (other.pos.x - self.pos.x) * self.facing > 0 for other in neighbors)
                 if not blocked:
                     self.pos.x += self.facing * (74 if self.strong else 92) * dt
-        else:
+        elif self.state == "patrol":
             distance_from_post = self.pos.x - self.spawn_x
-            if abs(distance_from_post) > 92:
+            if abs(distance_from_post) > 96:
                 self.patrol_direction = -1 if self.pos.x > self.spawn_x else 1
             self.facing = self.patrol_direction
             return_speed = 48 if abs(distance_from_post) > 120 else 24
             self.pos.x += self.patrol_direction * return_speed * dt
-        self.pos.x = clamp(self.pos.x, self.spawn_x - 330, self.spawn_x + 330)
+            if abs(distance_from_post) < 8 and self.timer > 2.2:
+                self.set_state("idle")
+        self.pos.x = clamp(self.pos.x, self.spawn_x - HOLLOW_LEASH_RANGE, self.spawn_x + HOLLOW_LEASH_RANGE)
         return None
 
     def draw(self, surface, sprites, offset):
         if not sprites or (self.state == "dead" and self.timer > 1.2):
             return
-        name = {
-            "dead": "death",
-            "alert": "walk",
-            "attack": "attack",
-            "hurt": "hurt",
-            "stagger": "stagger",
-        }.get(self.state, "walk" if abs(self.pos.x - self.spawn_x) > 2 else "idle")
-        frames = sprites[name]
-        durations = {"attack": 1.08, "hurt": .36, "stagger": 1.05, "death": 1.2}
-        if name in durations:
-            index = min(9, int(self.timer / durations[name] * 10))
-        else:
-            index = int(self.timer * (8 if name == "walk" else 4)) % 10
-        frame = frames[index]
+        name = self.animation_name()
+        frame = sprites[name][self.animation_frame(name)]
         if self.facing < 0:
             frame = pygame.transform.flip(frame, True, False)
         if self.flash:
@@ -607,7 +910,27 @@ class Hollow:
             frame.fill((85, 25, 20, 0), special_flags=pygame.BLEND_RGB_ADD)
         pos = self.pos + offset
         pygame.draw.ellipse(surface, (5, 6, 8), (pos.x - 35, GROUND + offset.y, 70, 11))
+        if self.transition_timer and self.previous_animation in sprites:
+            blend = self.transition_timer / HOLLOW_TRANSITION_DURATION
+            previous = sprites[self.previous_animation][self.previous_frame].copy()
+            if self.facing < 0:
+                previous = pygame.transform.flip(previous, True, False)
+            previous.set_alpha(int(255 * blend))
+            surface.blit(previous, previous.get_rect(midbottom=(pos.x, pos.y + 2)))
+            frame = frame.copy()
+            frame.set_alpha(int(255 * (1 - blend)))
         surface.blit(frame, frame.get_rect(midbottom=(pos.x, pos.y + 2)))
+        if self.health_bar_visible():
+            width, height = 58, 6
+            bar = pygame.Rect(round(pos.x - width / 2), round(pos.y - 132), width, height)
+            pygame.draw.rect(surface, (5, 5, 7), bar.inflate(4, 4))
+            pygame.draw.rect(surface, (39, 30, 30), bar)
+            fill = bar.copy()
+            fill.width = round(width * self.health_ratio)
+            if fill.width:
+                pygame.draw.rect(surface, (157, 92, 35) if self.strong else (139, 31, 37), fill)
+                pygame.draw.line(surface, (220, 171, 85) if self.strong else (191, 68, 67), fill.topleft, fill.topright)
+            pygame.draw.rect(surface, (119, 105, 88), bar, 1)
 
 
 class Gundyr:
@@ -979,6 +1302,10 @@ class Game:
         self.camera_x = 0.0
         self.world_time = 0.0
         self.fog_transition = 0.0
+        if hasattr(self, "fog_gate"):
+            self.fog_gate.reset()
+        else:
+            self.fog_gate = FogGate()
         self.boss_defeated = False
         if not hasattr(self, "souls"):
             self.souls = 0
@@ -999,6 +1326,7 @@ class Game:
         self.hollows = [Hollow(x, index == len(HOLLOW_SPAWNS) - 1) for index, x in enumerate(HOLLOW_SPAWNS)]
         self.area, self.camera_x = "explore", 0.0
         self.fog_transition = self.end_timer = self.freeze = self.shake = 0.0
+        self.fog_gate.reset()
         self.particles, self.waves = [], []
 
     def rest_at_bonfire(self):
@@ -1009,7 +1337,12 @@ class Game:
         self.burst(pygame.Vector2(BONFIRE_X, GROUND - 35), (235, 139, 43), 34, 145)
 
     def begin_fog_transition(self):
-        if self.area == "explore" and not self.boss_defeated and not self.fog_transition:
+        if (
+            self.area == "explore"
+            and not self.boss_defeated
+            and not self.fog_transition
+            and self.fog_gate.begin(self.hero)
+        ):
             self.fog_transition = FOG_ENTER_DURATION
 
     def enter_boss_arena(self):
@@ -1251,7 +1584,11 @@ class Game:
             self.freeze = max(0, self.freeze - dt)
             return
         defending = pygame.key.get_pressed()[pygame.K_f]
-        if self.area == "explore":
+        if self.area == "explore" and self.fog_gate.entering:
+            # The gate owns horizontal movement during the short crossing.
+            # Hero internals and animation assets remain untouched.
+            self.hero.velocity.x = 0
+        elif self.area == "explore":
             right_bound = WORLD_RIGHT if self.boss_defeated else FOG_GATE_X - 58
             self.hero.update(dt, self.movement(), jump, defending, WORLD_LEFT, right_bound)
         else:
@@ -1274,6 +1611,7 @@ class Game:
         if self.area == "explore":
             self.update_exploration(dt)
         else:
+            self.fog_gate.advance(dt)
             self.update_boss(dt)
 
         self.particles = [particle for particle in self.particles if particle.update(dt)]
@@ -1294,12 +1632,12 @@ class Game:
         )
 
     def update_exploration(self, dt):
-        if self.fog_transition:
-            self.fog_transition = max(0, self.fog_transition - dt)
-            self.hero.pos.x += 78 * dt
-            if not self.fog_transition:
+        crossed = self.fog_gate.update(dt, self.hero, not self.boss_defeated)
+        if self.fog_gate.entering or crossed:
+            self.fog_transition = max(0, FOG_ENTER_DURATION - self.fog_gate.elapsed)
+            if crossed:
                 self.enter_boss_arena()
-                return
+            return
 
         for hollow in self.hollows:
             result = hollow.update(dt, self.hero, self.hollows)
@@ -1649,20 +1987,19 @@ class Game:
         if self.area == "explore":
             self.world.draw(self.screen, self.camera_x - shake_offset.x, self.world_time)
             self.bonfire.draw(self.screen, offset, self.world_time)
-            self.fog_gate.draw(self.screen, offset, self.world_time, not self.boss_defeated)
+            self.fog_gate.draw(self.screen, offset, self.world_time, not self.boss_defeated, foreground=False)
         else:
             self.screen.blit(self.background, shake_offset)
             # The fog seals the arena behind the player while Gundyr lives.
             if self.boss.hp:
-                gate_x = int(BOSS_ARENA_LEFT + 65 + offset.x)
-                pygame.draw.rect(self.screen, (36, 34, 38), (gate_x - 50, 232, 12, GROUND - 232))
-                pygame.draw.rect(self.screen, (36, 34, 38), (gate_x + 38, 232, 12, GROUND - 232))
-                pygame.draw.arc(self.screen, (73, 70, 72), (gate_x - 50, 188, 100, 102), math.pi, math.tau, 8)
-                fog = pygame.Surface((78, GROUND - 242), pygame.SRCALPHA)
-                for band in range(8):
-                    wave = math.sin(self.world_time * 2.6 + band) * 8
-                    pygame.draw.ellipse(fog, (202, 204, 196, 52), (wave - 22, band * 42 - 15, 125, 76))
-                self.screen.blit(fog, (gate_x - 39, 238))
+                self.fog_gate.draw(
+                    self.screen,
+                    offset,
+                    self.world_time,
+                    sealed=True,
+                    foreground=False,
+                    world_x=BOSS_ARENA_LEFT + 65,
+                )
         for center, radius, life in self.waves:
             pygame.draw.ellipse(self.screen, (145, 43, 39), (center.x - radius + offset.x, GROUND - radius * .14 + offset.y, radius * 2, radius * .28), 4)
         actors = [(self.hero.pos.x, self.hero, self.art.hero)]
@@ -1674,9 +2011,20 @@ class Game:
             actor.draw(self.screen, sprites, offset)
         for particle in self.particles:
             particle.draw(self.screen, offset)
+        if self.area == "explore":
+            self.fog_gate.draw(self.screen, offset, self.world_time, not self.boss_defeated, foreground=True)
+        elif self.boss.hp:
+            self.fog_gate.draw(
+                self.screen,
+                offset,
+                self.world_time,
+                sealed=True,
+                foreground=True,
+                world_x=BOSS_ARENA_LEFT + 65,
+            )
         self.draw_debug_hitboxes(offset)
         self.draw_hud()
-        if self.area == "explore" and self.hero.hp and not self.paused:
+        if self.area == "explore" and self.hero.hp and not self.paused and not self.fog_gate.entering:
             prompt = None
             if self.bonfire.near(self.hero):
                 prompt = "G   DESCANSAR NA FOGUEIRA"
@@ -1688,10 +2036,7 @@ class Game:
                 self.screen.blit(prompt_panel, prompt_panel.get_rect(center=(WIDTH // 2, HEIGHT - 76)))
                 draw_text(self.screen, self.font_ui, prompt, (WIDTH // 2, HEIGHT - 76), (218, 208, 188), "center")
         if self.fog_transition:
-            transition = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            progress = 1 - self.fog_transition / FOG_ENTER_DURATION
-            transition.fill((215, 216, 208, int(155 * math.sin(progress * math.pi))))
-            self.screen.blit(transition, (0, 0))
+            self.fog_gate.draw_transition_overlay(self.screen)
         if self.help_time:
             box = pygame.Surface((670, 151), pygame.SRCALPHA)
             box.fill((5, 5, 7, 224))
