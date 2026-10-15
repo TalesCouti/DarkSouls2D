@@ -14,6 +14,17 @@ import pygame
 WIDTH, HEIGHT, FPS = 1280, 720, 60
 GROUND = 566
 LEFT_WALL, RIGHT_WALL = 72, WIDTH - 72
+WORLD_WIDTH = 3600
+WORLD_LEFT, WORLD_RIGHT = 70, WORLD_WIDTH - 80
+BONFIRE_X = 250
+FOG_GATE_X = 3380
+BOSS_ARENA_LEFT = 3720
+BOSS_ARENA_RIGHT = BOSS_ARENA_LEFT + WIDTH
+BOSS_SPAWN_X = BOSS_ARENA_LEFT + 930
+HOLLOW_SPAWNS = (720, 1190, 1660, 2180, 2760)
+HOLLOW_SOULS = 80
+INTERACTION_RANGE = 105
+FOG_ENTER_DURATION = .8
 HEAL_DURATION = 1.45
 HEAL_APPLY_TIME = .78
 DEATH_ANIMATION_DURATION = 1.15
@@ -67,6 +78,12 @@ class SpriteArt:
             ("idle", "walk", "sweep_a", "sweep_b", "thrust_a", "thrust_b", "slam", "special"),
             1.55,
         )
+        self.hollow = self._strips(
+            "hollow",
+            ("idle", "walk", "attack", "hurt", "stagger", "death"),
+            1.05,
+            required=False,
+        )
         self.estus_icon = self._icon("estus_flask_v1.png", 42)
 
     @staticmethod
@@ -82,12 +99,17 @@ class SpriteArt:
         return pygame.transform.smoothscale(source, size)
 
     @staticmethod
-    def _strips(prefix, animation_names, scale):
+    def _strips(prefix, animation_names, scale, required=True):
         output = {}
         for name in animation_names:
             independent = ROOT / "assets" / "animations_v5" / f"{prefix}_{name}.png"
             legacy = ROOT / "assets" / "animations_v3" / f"{prefix}_{name}.png"
             path = independent if independent.exists() else legacy
+            if not path.exists():
+                print(f"Aviso: animação ausente: {independent}")
+                if required:
+                    raise FileNotFoundError(independent)
+                return {}
             strip = pygame.image.load(path).convert_alpha()
             frame_count = 10
             cell_w, cell_h = strip.get_width() // frame_count, strip.get_height()
@@ -198,7 +220,7 @@ class Hero:
         self.grounded = False
         return "hit"
 
-    def update(self, dt, move, jump_pressed, defending):
+    def update(self, dt, move, jump_pressed, defending, left_bound=LEFT_WALL, right_bound=RIGHT_WALL):
         self.heal_effect = False
         self.timer += dt
         self.invulnerable = max(0, self.invulnerable - dt)
@@ -276,7 +298,7 @@ class Hero:
             self.pos.y, self.velocity.y, self.grounded = GROUND, 0, True
             if self.state in ("jump", "fall"):
                 self.state, self.timer = "idle", 0
-        self.pos.x = clamp(self.pos.x, LEFT_WALL + 28, RIGHT_WALL - 28)
+        self.pos.x = clamp(self.pos.x, left_bound + 28, right_bound - 28)
 
     def attack_box(self):
         if self.state == "attack" and .23 <= self.timer <= .42:
@@ -366,6 +388,226 @@ class Hero:
             if self.facing < 0:
                 layer = pygame.transform.flip(layer, True, False)
             surface.blit(layer, (pos.x - 55, pos.y - 119))
+
+
+class World:
+    """Procedural Cemetery of Ash exploration area and parallax scenery."""
+
+    def __init__(self):
+        rng = random.Random(3303)
+        self.graves = [(x, rng.randint(28, 62), rng.randint(-8, 8)) for x in range(420, WORLD_WIDTH, 145)]
+        self.trees = [(x, rng.randint(120, 210)) for x in range(160, WORLD_WIDTH, 390)]
+        self.ruins = [(x, rng.randint(90, 175)) for x in range(520, WORLD_WIDTH, 610)]
+
+    def draw(self, surface, camera_x, time):
+        surface.fill((22, 28, 38))
+        pygame.draw.circle(surface, (98, 104, 113), (995 - int(camera_x * .08), 125), 82)
+        pygame.draw.circle(surface, (38, 44, 54), (1022 - int(camera_x * .08), 112), 67)
+        for layer, (color, speed, base, step) in enumerate((
+            ((42, 49, 61), .12, 345, 240),
+            ((31, 38, 48), .25, 430, 185),
+        )):
+            points = [(-80, HEIGHT)]
+            shift = -int(camera_x * speed) % step
+            for x in range(shift - step, WIDTH + step, step):
+                peak = base - ((x // step + layer) % 3) * 34
+                points.extend(((x, base + 70), (x + step // 2, peak), (x + step, base + 70)))
+            points.append((WIDTH + 80, HEIGHT))
+            pygame.draw.polygon(surface, color, points)
+
+        for x, height in self.ruins:
+            sx = int(x - camera_x * .55)
+            if -180 < sx < WIDTH + 120:
+                pygame.draw.rect(surface, (38, 42, 48), (sx, GROUND - height - 45, 72, height + 45))
+                pygame.draw.rect(surface, (20, 25, 31), (sx + 20, GROUND - height, 31, height), border_radius=14)
+                pygame.draw.line(surface, (64, 66, 69), (sx, GROUND - height - 45), (sx + 72, GROUND - height - 45), 3)
+
+        for x, height in self.trees:
+            sx = int(x - camera_x * .78)
+            if -130 < sx < WIDTH + 130:
+                pygame.draw.line(surface, (28, 27, 30), (sx, GROUND), (sx + 5, GROUND - height), 13)
+                for side, dy in ((-1, 48), (1, 72), (-1, 104), (1, 132)):
+                    start = (sx + 4, GROUND - height + dy)
+                    end = (sx + side * (45 + dy // 5), start[1] - 35)
+                    pygame.draw.line(surface, (28, 27, 30), start, end, 6)
+                    pygame.draw.line(surface, (28, 27, 30), end, (end[0] + side * 20, end[1] - 23), 3)
+
+        pygame.draw.rect(surface, (38, 40, 43), (0, GROUND, WIDTH, HEIGHT - GROUND))
+        pygame.draw.line(surface, (86, 80, 72), (0, GROUND), (WIDTH, GROUND), 3)
+        for x, height, tilt in self.graves:
+            sx = int(x - camera_x)
+            if -60 < sx < WIDTH + 60:
+                stone = pygame.Surface((44, height + 12), pygame.SRCALPHA)
+                pygame.draw.rect(stone, (53, 55, 58), (5, 10, 34, height), border_radius=7)
+                pygame.draw.rect(stone, (78, 78, 77), (5, 10, 34, height), 2, border_radius=7)
+                pygame.draw.line(stone, (32, 34, 36), (20, 24), (20, height - 3), 2)
+                pygame.draw.line(stone, (32, 34, 36), (12, 34), (29, 34), 2)
+                stone = pygame.transform.rotate(stone, tilt)
+                surface.blit(stone, stone.get_rect(midbottom=(sx, GROUND + 3)))
+
+        fog = pygame.Surface((WIDTH, 120), pygame.SRCALPHA)
+        for index in range(9):
+            x = ((index * 190 - int(camera_x * .32) + int(time * 13)) % (WIDTH + 260)) - 130
+            pygame.draw.ellipse(fog, (151, 157, 164, 13), (x, 28 + index % 3 * 17, 260, 48))
+        surface.blit(fog, (0, GROUND - 82))
+
+
+class Bonfire:
+    def __init__(self, x=BONFIRE_X):
+        self.x = x
+
+    def near(self, hero):
+        return abs(hero.pos.x - self.x) <= INTERACTION_RANGE
+
+    def draw(self, surface, offset, time):
+        x = int(self.x + offset.x)
+        pygame.draw.ellipse(surface, (14, 13, 14), (x - 43, GROUND - 6, 86, 18))
+        for angle in (-.5, .05, .55):
+            end = (x + math.cos(angle) * 36, GROUND - 5 + math.sin(angle) * 12)
+            pygame.draw.line(surface, (47, 32, 24), (x, GROUND - 8), end, 8)
+            pygame.draw.line(surface, (110, 67, 35), (x, GROUND - 9), end, 3)
+        flame = 22 + math.sin(time * 7) * 5
+        pygame.draw.polygon(surface, (202, 72, 25), [(x - 11, GROUND - 10), (x, GROUND - 10 - flame), (x + 12, GROUND - 10)])
+        pygame.draw.polygon(surface, (244, 173, 55), [(x - 6, GROUND - 11), (x + 2, GROUND - 7 - flame * .72), (x + 7, GROUND - 11)])
+
+
+class FogGate:
+    def __init__(self, x=FOG_GATE_X):
+        self.x = x
+
+    def near(self, hero):
+        return abs(hero.pos.x - self.x) <= INTERACTION_RANGE
+
+    def draw(self, surface, offset, time, sealed=True):
+        x = int(self.x + offset.x)
+        if x < -90 or x > WIDTH + 90:
+            return
+        pygame.draw.rect(surface, (24, 23, 27), (x - 58, 218, 116, GROUND - 218))
+        pygame.draw.arc(surface, (78, 75, 76), (x - 61, 173, 122, 112), math.pi, math.tau, 8)
+        if sealed:
+            fog = pygame.Surface((106, GROUND - 229), pygame.SRCALPHA)
+            for band in range(9):
+                wave = math.sin(time * 2.3 + band * .9) * 9
+                alpha = 42 + band * 5
+                pygame.draw.ellipse(fog, (196, 199, 190, alpha), (wave - 18, band * 38 - 18, 138, 76))
+            surface.blit(fog, (x - 53, 224))
+
+
+class Hollow:
+    MAX_HP = 40.0
+
+    def __init__(self, x, strong=False):
+        self.spawn_x = float(x)
+        self.pos = pygame.Vector2(x, GROUND)
+        self.strong = strong
+        self.hp = self.max_hp = self.MAX_HP * (1.5 if strong else 1)
+        self.damage = 18 if strong else 12
+        self.facing = -1
+        self.state, self.timer = "idle", 0.0
+        self.patrol_direction = -1 if int(x) % 2 else 1
+        self.hit_done = False
+        self.flash = 0.0
+        self.rewarded = False
+
+    def hurt_box(self):
+        if self.state == "dead":
+            return pygame.Rect(int(self.pos.x - 48), int(self.pos.y - 30), 96, 30)
+        return pygame.Rect(int(self.pos.x - 22), int(self.pos.y - 108), 44, 108)
+
+    def attack_box(self):
+        # Frames 5–7 of the ten-frame strip are the active diagonal slash.
+        if self.state == "attack" and .54 <= self.timer <= .86:
+            left = self.pos.x + 18 if self.facing > 0 else self.pos.x - 88
+            return pygame.Rect(int(left), int(self.pos.y - 91), 70, 76)
+        return None
+
+    def receive(self, damage, direction):
+        if self.state == "dead":
+            return False
+        self.hp = max(0, self.hp - damage)
+        self.flash = .16
+        self.facing = -direction
+        self.state, self.timer = ("dead", 0) if not self.hp else ("hurt", 0)
+        return True
+
+    def parried(self):
+        self.state, self.timer, self.hit_done = "stagger", 0, True
+
+    def update(self, dt, hero, neighbors):
+        self.timer += dt
+        self.flash = max(0, self.flash - dt)
+        if self.state == "dead":
+            return None
+        distance = hero.pos.x - self.pos.x
+        absolute = abs(distance)
+        target_facing = 1 if distance > 0 else -1
+        if self.state == "hurt":
+            if self.timer > .36:
+                self.state, self.timer = "alert", 0
+            return None
+        if self.state == "stagger":
+            if self.timer > 1.05:
+                self.state, self.timer, self.hit_done = "alert", 0, False
+            return None
+        if self.state == "attack":
+            box = self.attack_box()
+            if box and not self.hit_done and box.colliderect(hero.hurt_box()):
+                self.hit_done = True
+                if hero.parry_active():
+                    self.parried()
+                    return "parry"
+                return hero.take_damage(self.damage, self.facing, self.pos.x)
+            if self.timer > 1.08:
+                self.state, self.timer, self.hit_done = "alert", 0, False
+            return None
+
+        if absolute < 360:
+            self.state = "alert"
+        elif self.state == "alert" and absolute > 520:
+            self.state = "idle"
+        if self.state == "alert":
+            self.facing = target_facing
+            if absolute < 78:
+                self.state, self.timer, self.hit_done = "attack", 0, False
+            else:
+                blocked = any(other is not self and other.state != "dead" and abs(other.pos.x - self.pos.x) < 54 and (other.pos.x - self.pos.x) * self.facing > 0 for other in neighbors)
+                if not blocked:
+                    self.pos.x += self.facing * (74 if self.strong else 92) * dt
+        else:
+            distance_from_post = self.pos.x - self.spawn_x
+            if abs(distance_from_post) > 92:
+                self.patrol_direction = -1 if self.pos.x > self.spawn_x else 1
+            self.facing = self.patrol_direction
+            return_speed = 48 if abs(distance_from_post) > 120 else 24
+            self.pos.x += self.patrol_direction * return_speed * dt
+        self.pos.x = clamp(self.pos.x, self.spawn_x - 330, self.spawn_x + 330)
+        return None
+
+    def draw(self, surface, sprites, offset):
+        if not sprites or (self.state == "dead" and self.timer > 1.2):
+            return
+        name = {
+            "dead": "death",
+            "alert": "walk",
+            "attack": "attack",
+            "hurt": "hurt",
+            "stagger": "stagger",
+        }.get(self.state, "walk" if abs(self.pos.x - self.spawn_x) > 2 else "idle")
+        frames = sprites[name]
+        durations = {"attack": 1.08, "hurt": .36, "stagger": 1.05, "death": 1.2}
+        if name in durations:
+            index = min(9, int(self.timer / durations[name] * 10))
+        else:
+            index = int(self.timer * (8 if name == "walk" else 4)) % 10
+        frame = frames[index]
+        if self.facing < 0:
+            frame = pygame.transform.flip(frame, True, False)
+        if self.flash:
+            frame = frame.copy()
+            frame.fill((85, 25, 20, 0), special_flags=pygame.BLEND_RGB_ADD)
+        pos = self.pos + offset
+        pygame.draw.ellipse(surface, (5, 6, 8), (pos.x - 35, GROUND + offset.y, 70, 11))
+        surface.blit(frame, frame.get_rect(midbottom=(pos.x, pos.y + 2)))
 
 
 class Gundyr:
@@ -572,7 +814,8 @@ class Gundyr:
                     self.pos.x += self.facing * 18
                 elif self.state != "stagger":
                     self.finish(1.15)
-        self.pos.x = clamp(self.pos.x, LEFT_WALL + 65, RIGHT_WALL - 65)
+        arena_origin = BOSS_ARENA_LEFT if self.pos.x >= BOSS_ARENA_LEFT else 0
+        self.pos.x = clamp(self.pos.x, arena_origin + LEFT_WALL + 65, arena_origin + RIGHT_WALL - 65)
         return events
 
     def draw(self, surface, sprites, offset):
@@ -695,7 +938,7 @@ class Game:
         self.background = self.build_background()
         self.death_vignette = self.build_death_vignette()
         self.capture = capture
-        self.show_hitboxes = True
+        self.show_hitboxes = False
         self.menu = True
         self.menu_page = "main"
         self.menu_selection = 0
@@ -704,6 +947,10 @@ class Game:
         self.cheat_health_index = self.CHEAT_HEALTH_OPTIONS.index(110)
         self.cheat_damage_index = self.CHEAT_DAMAGE_OPTIONS.index(1.0)
         self.music_ready = False
+        self.world = World()
+        self.bonfire = Bonfire()
+        self.fog_gate = FogGate()
+        self.souls = 0
         self.restart()
 
     def start_music(self):
@@ -724,12 +971,66 @@ class Game:
             self.CHEAT_HEALTH_OPTIONS[self.cheat_health_index],
             self.CHEAT_DAMAGE_OPTIONS[self.cheat_damage_index],
         )
+        self.hero.pos.x = BONFIRE_X + 95
         self.boss = Gundyr()
+        self.boss.pos.x = BOSS_SPAWN_X
+        self.hollows = [Hollow(x, index == len(HOLLOW_SPAWNS) - 1) for index, x in enumerate(HOLLOW_SPAWNS)]
+        self.area = "explore"
+        self.camera_x = 0.0
+        self.world_time = 0.0
+        self.fog_transition = 0.0
+        self.boss_defeated = False
+        if not hasattr(self, "souls"):
+            self.souls = 0
         self.particles, self.waves = [], []
         self.shake = self.freeze = self.end_timer = 0.0
         self.help_time, self.paused = 8.0, False
-        if not self.menu:
-            self.start_music()
+
+    def respawn_at_bonfire(self):
+        """Return the player to the last bonfire and restore the route."""
+        if self.music_ready:
+            pygame.mixer.music.fadeout(500)
+            self.music_ready = False
+        self.hero = Hero(
+            self.CHEAT_HEALTH_OPTIONS[self.cheat_health_index],
+            self.CHEAT_DAMAGE_OPTIONS[self.cheat_damage_index],
+        )
+        self.hero.pos.x = BONFIRE_X + 95
+        self.hollows = [Hollow(x, index == len(HOLLOW_SPAWNS) - 1) for index, x in enumerate(HOLLOW_SPAWNS)]
+        self.area, self.camera_x = "explore", 0.0
+        self.fog_transition = self.end_timer = self.freeze = self.shake = 0.0
+        self.particles, self.waves = [], []
+
+    def rest_at_bonfire(self):
+        self.hero.hp = self.hero.max_hp
+        self.hero.stamina = self.hero.max_stamina
+        self.hero.flasks = 3
+        self.hollows = [Hollow(x, index == len(HOLLOW_SPAWNS) - 1) for index, x in enumerate(HOLLOW_SPAWNS)]
+        self.burst(pygame.Vector2(BONFIRE_X, GROUND - 35), (235, 139, 43), 34, 145)
+
+    def begin_fog_transition(self):
+        if self.area == "explore" and not self.boss_defeated and not self.fog_transition:
+            self.fog_transition = FOG_ENTER_DURATION
+
+    def enter_boss_arena(self):
+        self.area = "boss"
+        self.camera_x = float(BOSS_ARENA_LEFT)
+        self.hero.pos.xy = BOSS_ARENA_LEFT + 190, GROUND
+        self.hero.velocity.xy = 0, 0
+        self.boss = Gundyr()
+        self.boss.pos.x = BOSS_SPAWN_X
+        self.fog_transition = self.end_timer = 0.0
+        self.particles, self.waves = [], []
+        self.start_music()
+
+    def return_after_victory(self):
+        self.area = "explore"
+        self.hero.pos.xy = FOG_GATE_X - 145, GROUND
+        self.hero.hp = max(1, self.hero.hp)
+        self.hero.state, self.hero.timer = "idle", 0.0
+        self.camera_x = clamp(self.hero.pos.x - WIDTH * .42, 0, WORLD_WIDTH - WIDTH)
+        self.end_timer = self.freeze = self.shake = 0.0
+        self.particles, self.waves = [], []
 
     def build_background(self):
         arena_path = ROOT / "assets" / "arena_gundyr_v1.png"
@@ -884,9 +1185,11 @@ class Game:
                     self.show_hitboxes = not self.show_hitboxes
                 elif event.key == pygame.K_h:
                     self.help_time = 999 if self.help_time < 20 else 0
-                elif event.key == pygame.K_r and (not self.hero.hp or not self.boss.hp):
-                    self.restart()
-                elif not self.paused and self.hero.hp and self.boss.hp:
+                elif event.key == pygame.K_r and not self.hero.hp:
+                    self.respawn_at_bonfire()
+                elif event.key == pygame.K_r and self.area == "boss" and not self.boss.hp:
+                    self.return_after_victory()
+                elif not self.paused and self.hero.hp and (self.area != "boss" or self.boss.hp):
                     if event.key in (pygame.K_w, pygame.K_UP):
                         jump = True
                     elif event.key in (pygame.K_SPACE, pygame.K_LSHIFT):
@@ -895,6 +1198,11 @@ class Game:
                         self.hero.parry()
                     elif event.key == pygame.K_e:
                         self.hero.heal()
+                    elif event.key == pygame.K_g and self.area == "explore":
+                        if self.bonfire.near(self.hero):
+                            self.rest_at_bonfire()
+                        elif self.fog_gate.near(self.hero):
+                            self.begin_fog_transition()
             if event.type == pygame.MOUSEBUTTONDOWN and self.menu:
                 if event.button == 1 and self.menu_page == "main":
                     if self.menu_play_button.collidepoint(event.pos):
@@ -927,7 +1235,7 @@ class Game:
                     self.pause_selection = 1
                     self.activate_pause_selection()
                 continue
-            if event.type == pygame.MOUSEBUTTONDOWN and not self.paused and self.hero.hp and self.boss.hp:
+            if event.type == pygame.MOUSEBUTTONDOWN and not self.paused and self.hero.hp and (self.area != "boss" or self.boss.hp):
                 if event.button == 1:
                     self.hero.attack()
                 elif event.button == 3:
@@ -937,12 +1245,24 @@ class Game:
     def update(self, dt, jump):
         if self.menu or self.paused:
             return
+        self.world_time += dt
         self.help_time = max(0, self.help_time - dt)
         if self.freeze > 0:
-            self.freeze -= dt
+            self.freeze = max(0, self.freeze - dt)
             return
         defending = pygame.key.get_pressed()[pygame.K_f]
-        self.hero.update(dt, self.movement(), jump, defending)
+        if self.area == "explore":
+            right_bound = WORLD_RIGHT if self.boss_defeated else FOG_GATE_X - 58
+            self.hero.update(dt, self.movement(), jump, defending, WORLD_LEFT, right_bound)
+        else:
+            self.hero.update(
+                dt,
+                self.movement(),
+                jump,
+                defending,
+                BOSS_ARENA_LEFT + LEFT_WALL,
+                BOSS_ARENA_LEFT + RIGHT_WALL,
+            )
         if self.hero.heal_effect:
             self.burst(
                 self.hero.pos - pygame.Vector2(0, 54),
@@ -950,6 +1270,69 @@ class Game:
                 24,
                 125,
             )
+
+        if self.area == "explore":
+            self.update_exploration(dt)
+        else:
+            self.update_boss(dt)
+
+        self.particles = [particle for particle in self.particles if particle.update(dt)]
+        for wave in self.waves:
+            wave[1] += 360 * dt
+            wave[2] -= dt
+        self.waves = [wave for wave in self.waves if wave[2] > 0]
+        self.shake = max(0, self.shake - 24 * dt)
+        if not self.hero.hp or (self.area == "boss" and not self.boss.hp):
+            self.end_timer += dt
+            if self.music_ready:
+                pygame.mixer.music.fadeout(1100)
+                self.music_ready = False
+        self.camera_x = (
+            clamp(self.hero.pos.x - WIDTH * .42, 0, WORLD_WIDTH - WIDTH)
+            if self.area == "explore"
+            else float(BOSS_ARENA_LEFT)
+        )
+
+    def update_exploration(self, dt):
+        if self.fog_transition:
+            self.fog_transition = max(0, self.fog_transition - dt)
+            self.hero.pos.x += 78 * dt
+            if not self.fog_transition:
+                self.enter_boss_arena()
+                return
+
+        for hollow in self.hollows:
+            result = hollow.update(dt, self.hero, self.hollows)
+            if result == "hit":
+                self.shake, self.freeze = 8, .055
+                self.burst(self.hero.pos - pygame.Vector2(0, 48), (147, 28, 34), 13)
+            elif result == "block":
+                self.shake, self.freeze = 4, .035
+                self.burst(self.hero.pos + pygame.Vector2(self.hero.facing * 35, -58), (218, 191, 125), 9, 125)
+            elif result == "parry":
+                self.shake, self.freeze = 10, .09
+                self.burst(hollow.pos - pygame.Vector2(hollow.facing * 30, 64), (226, 196, 112), 18, 220)
+
+        hitbox, damage = self.hero.attack_box()
+        if hitbox and not self.hero.hit_done:
+            for hollow in self.hollows:
+                if hollow.state != "dead" and hitbox.colliderect(hollow.hurt_box()):
+                    self.hero.hit_done = True
+                    if hollow.receive(damage, self.hero.facing):
+                        self.freeze, self.shake = ((.07, 7) if damage > 20 else (.035, 4))
+                        self.burst(hollow.pos - pygame.Vector2(self.hero.facing * 25, 62), (135, 39, 36), 12)
+                        if hollow.state == "dead" and not hollow.rewarded:
+                            hollow.rewarded = True
+                            self.souls += HOLLOW_SOULS * (2 if hollow.strong else 1)
+                            self.burst(hollow.pos - pygame.Vector2(0, 58), (139, 144, 151), 20, 135)
+                    break
+
+        for hollow in self.hollows:
+            if hollow.state != "dead" and abs(self.hero.pos.x - hollow.pos.x) < 48 and self.hero.grounded and self.hero.state != "dodge":
+                direction = 1 if self.hero.pos.x > hollow.pos.x else -1
+                self.hero.pos.x += direction * (48 - abs(self.hero.pos.x - hollow.pos.x)) * .55
+
+    def update_boss(self, dt):
         for kind, pos in self.boss.update(dt, self.hero):
             if kind == "hit":
                 self.shake, self.freeze = 12, .075
@@ -981,6 +1364,8 @@ class Game:
                     self.waves.append([self.boss.pos.copy(), 25.0, .9])
                     self.burst(self.boss.pos - pygame.Vector2(0, 78), (202, 108, 43), 38, 280)
                     self.burst(self.boss.pos - pygame.Vector2(0, 55), (94, 86, 78), 46, 190)
+                    self.boss_defeated = True
+                    self.souls += 3000
         # During a dodge the hero can roll through the boss. Body separation
         # resumes as soon as the roll ends.
         if self.boss.hp and abs(self.hero.pos.x - self.boss.pos.x) < 72 and self.hero.grounded and self.hero.state != "dodge":
@@ -988,7 +1373,6 @@ class Game:
             overlap = 72 - abs(self.hero.pos.x - self.boss.pos.x)
             self.hero.pos.x += direction * overlap * .72
             self.boss.pos.x -= direction * overlap * .28
-        self.particles = [particle for particle in self.particles if particle.update(dt)]
         if self.boss.state == "dead" and self.boss.dead_time < BOSS_DEATH_DURATION:
             for _ in range(2):
                 if random.random() < 18 * dt:
@@ -996,16 +1380,6 @@ class Game:
                     ash_velocity = pygame.Vector2(random.uniform(-28, 28), random.uniform(-95, -32))
                     ash_color = random.choice(((171, 91, 38), (112, 97, 82), (73, 69, 65)))
                     self.particles.append(Particle(ash_pos, ash_velocity, ash_color, random.uniform(.5, 1.1), random.uniform(2, 5), -12))
-        for wave in self.waves:
-            wave[1] += 360 * dt
-            wave[2] -= dt
-        self.waves = [wave for wave in self.waves if wave[2] > 0]
-        self.shake = max(0, self.shake - 24 * dt)
-        if not self.hero.hp or not self.boss.hp:
-            self.end_timer += dt
-            if self.music_ready:
-                pygame.mixer.music.fadeout(1100)
-                self.music_ready = False
 
     def draw_bar(self, rect, ratio, color):
         pygame.draw.rect(self.screen, (3, 3, 5), rect.inflate(10, 8))
@@ -1037,7 +1411,13 @@ class Game:
             (157, 96),
             (222, 174, 80),
         )
-        if self.boss.state != "intro" or self.boss.timer > .45:
+        souls_panel = pygame.Surface((176, 42), pygame.SRCALPHA)
+        souls_panel.fill((3, 3, 5, 188))
+        self.screen.blit(souls_panel, (WIDTH - 194, 22))
+        pygame.draw.circle(self.screen, (62, 70, 76), (WIDTH - 168, 43), 9)
+        pygame.draw.circle(self.screen, (145, 151, 153), (WIDTH - 168, 43), 9, 1)
+        draw_text(self.screen, self.font_ui, f"{self.souls:07d}", (WIDTH - 37, 43), (214, 210, 197), "midright")
+        if self.area == "boss" and (self.boss.state != "intro" or self.boss.timer > .45):
             rect = pygame.Rect(205, HEIGHT - 69, WIDTH - 410, 18)
             self.draw_bar(rect, self.boss.hp / self.boss.max_hp, (128, 25, 33))
             draw_text(self.screen, self.font_ui, "IUDEX GUNDYR", (rect.left, rect.top - 35), (207, 194, 170))
@@ -1230,18 +1610,24 @@ class Game:
             pygame.draw.rect(layer, (*color, 235), moved, 2)
 
         box(self.hero.hurt_box(), (45, 145, 255))
-        if self.boss.hp:
+        if self.area == "boss" and self.boss.hp:
             box(self.boss.hurt_box(), (255, 155, 45))
+        elif self.area == "explore":
+            for hollow in self.hollows:
+                if hollow.state != "dead":
+                    box(hollow.hurt_box(), (224, 142, 52))
+                    box(hollow.attack_box(), (255, 45, 65))
         hero_attack, _ = self.hero.attack_box()
         box(hero_attack, (45, 235, 100))
-        box(self.boss.attack_box(), (255, 45, 65))
+        if self.area == "boss":
+            box(self.boss.attack_box(), (255, 45, 65))
         self.screen.blit(layer, (0, 0))
 
         legend = pygame.Surface((198, 91), pygame.SRCALPHA)
         legend.fill((4, 4, 6, 190))
         items = (
             ("JOGADOR", (45, 145, 255)),
-            ("GUNDYR", (255, 155, 45)),
+            (("GUNDYR" if self.area == "boss" else "HOLLOW"), (255, 155, 45)),
             ("ATAQUE SEU", (45, 235, 100)),
             ("ATAQUE CHEFE", (255, 45, 65)),
         )
@@ -1252,37 +1638,75 @@ class Game:
         self.screen.blit(legend, (WIDTH - 218, 181))
 
     def draw(self):
-        offset = pygame.Vector2()
-        if self.shake:
-            offset.xy = random.uniform(-self.shake, self.shake), random.uniform(-self.shake, self.shake)
-        self.screen.blit(self.background, offset)
         if self.menu:
             self.draw_main_menu()
             pygame.display.flip()
             return
+        shake_offset = pygame.Vector2()
+        if self.shake:
+            shake_offset.xy = random.uniform(-self.shake, self.shake), random.uniform(-self.shake, self.shake)
+        offset = pygame.Vector2(-self.camera_x, 0) + shake_offset
+        if self.area == "explore":
+            self.world.draw(self.screen, self.camera_x - shake_offset.x, self.world_time)
+            self.bonfire.draw(self.screen, offset, self.world_time)
+            self.fog_gate.draw(self.screen, offset, self.world_time, not self.boss_defeated)
+        else:
+            self.screen.blit(self.background, shake_offset)
+            # The fog seals the arena behind the player while Gundyr lives.
+            if self.boss.hp:
+                gate_x = int(BOSS_ARENA_LEFT + 65 + offset.x)
+                pygame.draw.rect(self.screen, (36, 34, 38), (gate_x - 50, 232, 12, GROUND - 232))
+                pygame.draw.rect(self.screen, (36, 34, 38), (gate_x + 38, 232, 12, GROUND - 232))
+                pygame.draw.arc(self.screen, (73, 70, 72), (gate_x - 50, 188, 100, 102), math.pi, math.tau, 8)
+                fog = pygame.Surface((78, GROUND - 242), pygame.SRCALPHA)
+                for band in range(8):
+                    wave = math.sin(self.world_time * 2.6 + band) * 8
+                    pygame.draw.ellipse(fog, (202, 204, 196, 52), (wave - 22, band * 42 - 15, 125, 76))
+                self.screen.blit(fog, (gate_x - 39, 238))
         for center, radius, life in self.waves:
             pygame.draw.ellipse(self.screen, (145, 43, 39), (center.x - radius + offset.x, GROUND - radius * .14 + offset.y, radius * 2, radius * .28), 4)
-        for _, actor in sorted(((self.hero.pos.x, self.hero), (self.boss.pos.x, self.boss)), key=lambda item: item[0]):
-            actor.draw(self.screen, self.art.hero if actor is self.hero else self.art.gundyr, offset)
+        actors = [(self.hero.pos.x, self.hero, self.art.hero)]
+        if self.area == "boss":
+            actors.append((self.boss.pos.x, self.boss, self.art.gundyr))
+        else:
+            actors.extend((hollow.pos.x, hollow, self.art.hollow) for hollow in self.hollows)
+        for _, actor, sprites in sorted(actors, key=lambda item: item[0]):
+            actor.draw(self.screen, sprites, offset)
         for particle in self.particles:
             particle.draw(self.screen, offset)
         self.draw_debug_hitboxes(offset)
         self.draw_hud()
+        if self.area == "explore" and self.hero.hp and not self.paused:
+            prompt = None
+            if self.bonfire.near(self.hero):
+                prompt = "G   DESCANSAR NA FOGUEIRA"
+            elif self.fog_gate.near(self.hero) and not self.boss_defeated:
+                prompt = "PRESSIONE G PARA ENTRAR"
+            if prompt:
+                prompt_panel = pygame.Surface((440, 44), pygame.SRCALPHA)
+                prompt_panel.fill((3, 3, 5, 205))
+                self.screen.blit(prompt_panel, prompt_panel.get_rect(center=(WIDTH // 2, HEIGHT - 76)))
+                draw_text(self.screen, self.font_ui, prompt, (WIDTH // 2, HEIGHT - 76), (218, 208, 188), "center")
+        if self.fog_transition:
+            transition = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            progress = 1 - self.fog_transition / FOG_ENTER_DURATION
+            transition.fill((215, 216, 208, int(155 * math.sin(progress * math.pi))))
+            self.screen.blit(transition, (0, 0))
         if self.help_time:
             box = pygame.Surface((670, 151), pygame.SRCALPHA)
             box.fill((5, 5, 7, 224))
             self.screen.blit(box, (WIDTH // 2 - 335, 18))
             pygame.draw.rect(self.screen, (117, 96, 75), (WIDTH // 2 - 335, 18, 670, 151), 1)
-            draw_text(self.screen, self.font_ui, "DUELO LATERAL — SEM LOCK-ON", (WIDTH // 2, 32), anchor="midtop")
+            draw_text(self.screen, self.font_ui, "CEMITÉRIO DAS CINZAS", (WIDTH // 2, 32), anchor="midtop")
             draw_text(self.screen, self.font_small, "A/D mover  •  W pular  •  ESPAÇO rolar  •  F defender à frente", (WIDTH // 2, 70), (192, 184, 174), "midtop")
-            draw_text(self.screen, self.font_small, "ESQ atacar  •  DIR golpe forte  •  Q aparar  •  E curar", (WIDTH // 2, 99), (192, 184, 174), "midtop")
-            draw_text(self.screen, self.font_small, "Costas ignoram o escudo  •  F3 hitboxes  •  H oculta ajuda", (WIDTH // 2, 127), (164, 154, 143), "midtop")
+            draw_text(self.screen, self.font_small, "ESQ atacar  •  DIR golpe forte  •  Q aparar  •  E curar  •  G interagir", (WIDTH // 2, 99), (192, 184, 174), "midtop")
+            draw_text(self.screen, self.font_small, "Explore até a névoa  •  F3 hitboxes  •  H oculta ajuda", (WIDTH // 2, 127), (164, 154, 143), "midtop")
         if self.paused:
             self.draw_pause_menu()
         elif not self.hero.hp:
             self.draw_death_screen()
-        elif not self.boss.hp and self.end_timer > VICTORY_MESSAGE_DELAY:
-            self.overlay("Herdeiro do Fogo Destruído", "R  desafiar novamente", (219, 176, 82))
+        elif self.area == "boss" and not self.boss.hp and self.end_timer > VICTORY_MESSAGE_DELAY:
+            self.overlay("Herdeiro do Fogo Destruído", "R  retornar ao cemitério", (219, 176, 82))
         pygame.display.flip()
 
     def run(self):

@@ -1,8 +1,8 @@
 # Ashen Trial
 
-Duelo 2D lateral em pixel art inspirado em *Dark Souls 3*, com atmosfera sombria, combate metódico e uma luta contra **Iudex Gundyr**, sem lock-on.
+Jogo 2D lateral em pixel art inspirado em *Dark Souls 3*, com exploração pelo **Cemitério das Cinzas**, combate metódico e uma luta contra **Iudex Gundyr**, sem lock-on.
 
-A arena usa um pátio gótico em ruínas, com muralhas, túmulos, névoa e iluminação fria. Ao morrer, uma transição escura exibe “VOCÊ MORREU” antes da opção de renascer.
+O percurso começa junto a uma fogueira, atravessa ruínas, túmulos, névoa e grupos de Hollows e termina no portão de névoa da arena. A fogueira restaura vida, stamina e Estus e faz os inimigos renascerem. Ao morrer, uma transição escura exibe “VOCÊ MORREU” antes da opção de renascer na fogueira.
 
 ## Executar
 
@@ -38,17 +38,18 @@ pyinstaller --noconfirm --clean --windowed --name AshenTrial --add-data "assets;
 | Defender na direção do escudo | Segurar `F` |
 | Aparar | `Q` |
 | Beber Estus | `E` |
+| Interagir com fogueira / névoa | `G` |
 | Mostrar ou ocultar ajuda | `H` |
 | Mostrar ou ocultar hitboxes | `F3` |
 | Pausar / abrir menu de pausa | `Esc` |
-| Reiniciar após o fim | `R` |
+| Renascer / retornar após o fim | `R` |
 
 No menu de pausa, use as setas ou `W/S` para escolher entre continuar e voltar
 ao menu principal; confirme com `Enter` ou clique na opção desejada.
 
 O jogador tem vida, stamina, combo, ataque forte, cura, pulo, rolamento com invencibilidade, defesa direcional e aparo. Ao pressionar `E`, ele saca e bebe o Estus; comandos do jogador não cancelam a animação, mas um ataque inimigo pode interrompê-la. A cura só é aplicada no momento do gole. Segurar `F` bloqueia golpes que chegam pela frente e consome stamina; ataques pelas costas ignoram o escudo. O chefe possui golpes com preparação e recuperação mais longas, recuos, investida, salto, combos, variações de tempo, golpes de área e uma segunda fase mais agressiva.
 
-Durante o desenvolvimento, as hitboxes começam visíveis: azul para o jogador, laranja para o chefe, verde para ataques do jogador e vermelho para ataques do chefe.
+O HUD também registra as almas recebidas ao derrotar Hollows e Gundyr. As hitboxes podem ser ativadas com `F3`: azul para o jogador, laranja para inimigos, verde para ataques do jogador e vermelho para ataques inimigos.
 
 ## Animações
 
@@ -56,5 +57,6 @@ Todas as animações do cavaleiro e os movimentos largos do chefe usam uma fonte
 
 - Cavaleiro: idle, corrida, rolamento, defesa, beber Estus, morte com pose final deitada, dois ataques leves e dois ataques fortes.
 - Iudex Gundyr: identidade alta e assimétrica inspirada na referência, alabarda consistente, idle separado, caminhada com passos alternados, duas varreduras, duas estocadas, golpe vertical e movimentos especiais.
+- Hollows: seis tiras próprias com dez quadros cada (idle, caminhada, ataque, dano, stagger e morte), geradas por `tools/make_hollow_sprites.py` com transparência real e linha de chão compatível com os demais personagens.
 
 Os atlases-fonte antigos ficam em `assets/hero_v3_atlas.png` e `assets/gundyr_v3_atlas.png`. Para reexportá-los, execute `py prepare_sprites.py`. Para reexportar as animações independentes corrigidas, execute `py prepare_independent_sprites.py`.
